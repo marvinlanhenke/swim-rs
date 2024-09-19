@@ -14,6 +14,11 @@ pub enum Error {
         message: String,
         location: snafu::Location,
     },
+    #[snafu(display("ProstDecodeError: {message}, {location}"))]
+    ProstDecode {
+        message: String,
+        location: snafu::Location,
+    },
 }
 
 trait SnafuLocationExt {
@@ -40,3 +45,4 @@ macro_rules! make_error_from {
 }
 
 make_error_from!(std::io::Error, Io);
+make_error_from!(prost::DecodeError, ProstDecode);
