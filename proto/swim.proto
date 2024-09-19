@@ -3,7 +3,7 @@ syntax = "proto3";
 package swim;
 
 message NodeId {
-  bytes addr = 1;
+  string addr = 1;
 }
 
 message SwimMessage {
