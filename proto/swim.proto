@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package swim;
 
-import "google/protobuf/timestamp.proto";
-
 message NodeId {
   bytes addr = 1;
 }
