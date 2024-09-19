@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package swim;
+
+import "google/protobuf/timestamp.proto";
+
+message NodeId {
+  bytes addr = 1;
+}
+
+message SwimMessage {
+  oneof msg {
+    Ping ping = 1;
+    Ack ack = 2;
+  }
+}
+
+message Ping {
+  NodeId from = 1;
+}
+
+message Ack {
+  NodeId from = 1;
+}
