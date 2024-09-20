@@ -14,6 +14,11 @@ message Gossip {
     string from = 1;
   }
 
+  message PingReq {
+    string from = 1;
+    string suspect = 2;
+  }
+
   message Ack {
     string from = 1;
   }
@@ -28,9 +33,10 @@ message Gossip {
 
   oneof gossip_type {
     Ping ping = 1;
-    Ack ack = 2;
-    JoinRequest join_request = 3;
-    JoinResponse join_response = 4;
+    PingReq ping_req = 2;
+    Ack ack = 3;
+    JoinRequest join_request = 4;
+    JoinResponse join_response = 5;
   }
 }
 

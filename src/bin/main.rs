@@ -11,15 +11,13 @@ async fn main() -> Result<()> {
         .with_level(true)
         .init();
 
-    for i in 0..3 {
-        let peers: Option<&[&str]> = if i == 0 {
-            None
-        } else {
-            Some(&["0.0.0.0:8080"])
-        };
-        let addr = format!("0.0.0.0:808{i}");
-        SwimNode::try_new(&addr, peers).await?.run().await?;
-    }
+    let n1 = SwimNode::try_new("0.0.0.0:8080", None).await?;
+    let n2 = SwimNode::try_new("0.0.0.0:8081", Some(&["0.0.0.0:8080"])).await?;
+    let n3 = SwimNode::try_new("0.0.0.0:8082", Some(&["0.0.0.0:8080"])).await?;
+
+    n1.run().await?;
+    n2.run().await?;
+    n3.run().await?;
 
     // simulate some application server
     let socket = UdpSocket::bind("0.0.0.0:9090").await?;
