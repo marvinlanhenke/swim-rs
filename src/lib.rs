@@ -98,6 +98,9 @@ impl SwimNode {
                                 Some(GossipType::Ping(req)) => {
                                     let _ = Self::handle_ping(&this, &req.from).await;
                                 }
+                                Some(GossipType::Ack(req)) => {
+                                    let _ = Self::handle_ack(&this, &req.from).await;
+                                }
                                 _ => {}
                             },
                             Err(e) => {
@@ -207,7 +210,7 @@ impl SwimNode {
     }
 
     async fn handle_ping(this: &SwimNode, from: &str) -> Result<()> {
-        tracing::info!("[{}] handling ping from [{}]", this.addr, from);
+        tracing::info!("[{}] handling Ping from [{}]", this.addr, from);
 
         let gossip = GossipType::Ack(Ack {
             from: this.addr.to_string(),
@@ -217,6 +220,15 @@ impl SwimNode {
         gossip.encode(&mut buf);
 
         this.socket.send_to(&buf, from).await?;
+
+        Ok(())
+    }
+
+    async fn handle_ack(this: &SwimNode, from: &str) -> Result<()> {
+        tracing::info!("[{}] handling Ack from [{}]", this.addr, from);
+
+        let mut pending = this.pending.write().await;
+        pending.remove(from);
 
         Ok(())
     }
