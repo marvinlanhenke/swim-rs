@@ -5,7 +5,7 @@ use pb::{
 use prost::Message;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use snafu::location;
-use tokio::{net::UdpSocket, sync::RwLock};
+use tokio::{net::UdpSocket, sync::RwLock, task::JoinHandle};
 
 use crate::error::{Error, Result};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
@@ -59,7 +59,7 @@ impl SwimNode {
         tracing::info!("[{}] current members: {:?}", &self.addr, &self.members);
     }
 
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run(&self) -> Result<(JoinHandle<()>, JoinHandle<()>)> {
         tracing::info!("SwimNode listening on {}", self.addr);
 
         // if peer fails to answer -> mark as peer as dead
@@ -70,16 +70,15 @@ impl SwimNode {
             }
         }
 
-        self.dispatch_message().await?;
-        self.send_ping().await?;
-
-        Ok(())
+        let ping_task = self.send_ping().await?;
+        let dispatch_task = self.dispatch_message().await?;
+        Ok((ping_task, dispatch_task))
     }
 
-    async fn dispatch_message(&self) -> Result<()> {
+    async fn dispatch_message(&self) -> Result<JoinHandle<()>> {
         let this = self.clone();
 
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let mut buf = [0u8; 1536];
 
             loop {
@@ -118,7 +117,7 @@ impl SwimNode {
             }
         });
 
-        Ok(())
+        Ok(task)
     }
 
     async fn send_join_request(&self, target: &SocketAddr) -> Result<()> {
@@ -169,7 +168,7 @@ impl SwimNode {
         Ok(())
     }
 
-    async fn send_ping(&self) -> Result<()> {
+    async fn send_ping(&self) -> Result<JoinHandle<()>> {
         let this = self.clone();
         let mut rng: StdRng = SeedableRng::from_entropy();
 
@@ -177,7 +176,7 @@ impl SwimNode {
             from: this.addr.to_string(),
         });
 
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(3000)).await;
 
@@ -210,7 +209,7 @@ impl SwimNode {
             }
         });
 
-        Ok(())
+        Ok(task)
     }
 
     async fn send_ping_req(this: &SwimNode) -> Result<()> {
