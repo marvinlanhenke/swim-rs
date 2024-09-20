@@ -1,10 +1,9 @@
 use prost::Message;
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use snafu::location;
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, sync::RwLock};
 
 use crate::error::{Error, Result};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc};
 
 pub mod error;
 
@@ -12,7 +11,7 @@ pub mod pb {
     include!(concat!(env!("OUT_DIR"), "/swim.rs"));
 }
 
-use pb::{gossip::GossipType, Gossip, JoinRequest, NodeId};
+use pb::{gossip::GossipType, Gossip, JoinRequest, JoinResponse, NodeId};
 
 #[allow(unused)]
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -23,17 +22,17 @@ enum NodeState {
 }
 
 #[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SwimNode {
     addr: SocketAddr,
     peers: Option<Vec<SocketAddr>>,
-    members: Arc<Vec<SocketAddr>>,
+    members: Arc<RwLock<Vec<NodeId>>>,
     socket: Arc<UdpSocket>,
 }
 
 impl SwimNode {
     pub async fn try_new(addr: &str, peers: Option<&[&str]>) -> Result<Self> {
-        let addr = addr.parse()?;
+        let addr: SocketAddr = addr.parse()?;
         let peers = peers
             .map(|peer_list| {
                 peer_list
@@ -48,13 +47,15 @@ impl SwimNode {
             })
             .transpose()?;
 
-        let members = vec![addr];
         let socket = UdpSocket::bind(&addr).await?;
+        let members = vec![NodeId {
+            addr: addr.to_string(),
+        }];
 
         Ok(Self {
             addr,
             peers,
-            members: Arc::new(members),
+            members: Arc::new(RwLock::new(members)),
             socket: Arc::new(socket),
         })
     }
@@ -77,30 +78,41 @@ impl SwimNode {
     }
 
     async fn dispatch_message(&self) -> Result<()> {
-        let socket = self.socket.clone();
-        let addr = self.addr;
+        let this = self.clone();
 
         tokio::spawn(async move {
             let mut buf = [0u8; 1536];
 
             loop {
-                match socket.recv_from(&mut buf).await {
+                match this.socket.recv_from(&mut buf).await {
                     Ok((bytes, src)) => {
-                        tracing::info!("[{}] received {} bytes from [{}]", addr, bytes, src);
+                        tracing::info!("[{}] received {} bytes from [{}]", this.addr, bytes, src);
                         let gossip = Gossip::decode(&buf[..bytes]);
 
                         match gossip {
                             Ok(msg) => match msg.gossip_type {
-                                Some(GossipType::JoinRequest(req)) => tracing::info!("{:?}", req),
+                                Some(GossipType::JoinRequest(req)) => {
+                                    if let Some(from) = &req.from {
+                                        let _ = Self::handle_join_request(&this, from).await;
+                                    }
+                                }
+                                Some(GossipType::JoinResponse(req)) => {
+                                    let _ = Self::handle_join_response(&this, &req).await;
+                                }
+                                Some(GossipType::Ping(_req)) => todo!(),
                                 _ => {}
                             },
-                            Err(e) => tracing::error!("[{}] DecodeError: {}", addr, e.to_string()),
+                            Err(e) => {
+                                tracing::error!("[{}] DecodeError: {}", &this.addr, e.to_string())
+                            }
                         }
                     }
                     Err(e) => {
-                        tracing::error!("[{}] DispatchError: {}", addr, e.to_string())
+                        tracing::error!("[{}] DispatchError: {}", &this.addr, e.to_string())
                     }
-                }
+                };
+
+                tracing::info!("[{}] current members: {:?}", &this.addr, &this.members);
             }
         });
 
@@ -124,24 +136,53 @@ impl SwimNode {
         Ok(())
     }
 
-    // failure detection -> abstract
-    async fn send_message(&self) -> Result<()> {
-        let socket = self.socket.clone();
-        let members = self.members.clone();
+    async fn handle_join_request(this: &SwimNode, from: &NodeId) -> Result<()> {
+        tracing::info!("[{}] handling JoinRequest from: [{}]", this.addr, from.addr);
 
-        let mut rng: StdRng = SeedableRng::from_entropy();
-
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(1000));
-            loop {
-                interval.tick().await;
-                let member = members.choose(&mut rng).cloned();
-                if let Some(addr) = member {
-                    let _ = socket.send_to(b"PING", addr).await;
-                }
-            }
+        let mut members = this.members.write().await;
+        members.push(NodeId {
+            addr: from.addr.clone(),
         });
+
+        let gossip = GossipType::JoinResponse(JoinResponse {
+            member: members.to_vec(),
+        });
+
+        let mut buf = vec![];
+        gossip.encode(&mut buf);
+
+        this.socket.send_to(&buf, &from.addr).await?;
 
         Ok(())
     }
+
+    async fn handle_join_response(this: &SwimNode, response: &JoinResponse) -> Result<()> {
+        tracing::info!("[{}] handling JoinResponse {:?}", this.addr, response);
+
+        let mut members = this.members.write().await;
+        *members = response.member.clone();
+
+        Ok(())
+    }
+
+    // failure detection -> abstract
+    // async fn send_message(&self) -> Result<()> {
+    //     let socket = self.socket.clone();
+    //     let members = self.members.clone();
+
+    //     let mut rng: StdRng = SeedableRng::from_entropy();
+
+    //     tokio::spawn(async move {
+    //         let mut interval = tokio::time::interval(Duration::from_millis(1000));
+    //         loop {
+    //             interval.tick().await;
+    //             let member = members.choose(&mut rng).cloned();
+    //             if let Some(addr) = member {
+    //                 let _ = socket.send_to(b"PING", addr).await;
+    //             }
+    //         }
+    //     });
+
+    //     Ok(())
+    // }
 }
