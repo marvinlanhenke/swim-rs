@@ -1,5 +1,5 @@
 use pb::{
-    gossip::{GossipType, JoinRequest, JoinResponse, Ping},
+    gossip::{Ack, GossipType, JoinRequest, JoinResponse, Ping},
     Gossip, NodeState,
 };
 use prost::Message;
@@ -23,6 +23,7 @@ pub struct SwimNode {
     peers: Arc<Option<Vec<SocketAddr>>>,
     members: Arc<RwLock<HashMap<String, i32>>>,
     socket: Arc<UdpSocket>,
+    pending: Arc<RwLock<HashMap<String, i32>>>,
 }
 
 impl SwimNode {
@@ -50,6 +51,7 @@ impl SwimNode {
             peers: Arc::new(peers),
             members: Arc::new(RwLock::new(members)),
             socket: Arc::new(socket),
+            pending: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -172,6 +174,7 @@ impl SwimNode {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(3000));
             loop {
+                tracing::info!("[{}] currently pending: {:?}", &this.addr, &this.pending);
                 interval.tick().await;
                 let members = this.members.read().await;
 
@@ -182,7 +185,9 @@ impl SwimNode {
                 let node_ids = members.keys().collect::<Vec<_>>();
                 let target = loop {
                     if let Some(&addr) = node_ids.choose(&mut rng) {
-                        if addr != &this.addr.to_string() {
+                        // if not the node itself and is not already pending
+                        let pending = this.pending.read().await;
+                        if addr != &this.addr.to_string() && !pending.contains_key(addr) {
                             break addr;
                         }
                         continue;
@@ -192,6 +197,9 @@ impl SwimNode {
                 let mut buf = vec![];
                 gossip.encode(&mut buf);
                 let _ = this.socket.send_to(&buf, target).await;
+
+                let mut pending = this.pending.write().await;
+                pending.insert(target.clone(), NodeState::Pending as i32);
             }
         });
 
@@ -200,6 +208,16 @@ impl SwimNode {
 
     async fn handle_ping(this: &SwimNode, from: &str) -> Result<()> {
         tracing::info!("[{}] handling ping from [{}]", this.addr, from);
+
+        let gossip = GossipType::Ack(Ack {
+            from: this.addr.to_string(),
+        });
+
+        let mut buf = vec![];
+        gossip.encode(&mut buf);
+
+        this.socket.send_to(&buf, from).await?;
+
         Ok(())
     }
 }

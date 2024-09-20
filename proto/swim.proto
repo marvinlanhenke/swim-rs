@@ -6,6 +6,7 @@ enum NodeState {
   Alive = 0;
   Suspect = 1;
   Dead = 2;
+  Pending = 3;
 }
 
 message Gossip {
