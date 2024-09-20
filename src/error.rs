@@ -14,8 +14,18 @@ pub enum Error {
         message: String,
         location: snafu::Location,
     },
+    #[snafu(display("ProstEncodeError: {message}, {location}"))]
+    ProstEncode {
+        message: String,
+        location: snafu::Location,
+    },
     #[snafu(display("ProstDecodeError: {message}, {location}"))]
     ProstDecode {
+        message: String,
+        location: snafu::Location,
+    },
+    #[snafu(display("AddrParseError: {message}, {location}"))]
+    AddrParse {
         message: String,
         location: snafu::Location,
     },
@@ -46,3 +56,5 @@ macro_rules! make_error_from {
 
 make_error_from!(std::io::Error, Io);
 make_error_from!(prost::DecodeError, ProstDecode);
+make_error_from!(prost::EncodeError, ProstEncode);
+make_error_from!(std::net::AddrParseError, AddrParse);
