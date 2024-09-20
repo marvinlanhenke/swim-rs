@@ -215,55 +215,52 @@ impl SwimNode {
     async fn send_ping_req(this: &SwimNode) -> Result<()> {
         let this = this.clone();
         let mut rng: StdRng = SeedableRng::from_entropy();
-        let probe_size = 2;
 
-        // for each interval check if we have some 'pending'
-        // send a ping_request to `probe_size` n nodes.
         tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_millis(1000)).await;
+            // wait for 1sec if still pending then issue ping_req
+            tokio::time::sleep(Duration::from_millis(1000)).await;
 
-                let pending = this.pending.read().await;
+            let pending = this.pending.read().await.clone();
+            tracing::info!("[{}] currently pending: {:?}", &this.addr, &this.pending);
+            if pending.is_empty() {
+                tracing::info!("[{}] no pending", &this.addr);
+                return;
+            }
 
-                if pending.is_empty() {
-                    tracing::info!("[{}] no pending: {:?}", &this.addr, pending);
-                    break;
-                }
+            // update node_state -> suspect
+            let mut members = this.members.write().await;
+            let mut requests = Vec::with_capacity(pending.len());
 
-                tracing::info!("[{}] currently pending: {:?}", &this.addr, &this.pending);
+            for suspect in pending.keys() {
+                members.insert(suspect.clone(), NodeState::Suspect as i32);
 
-                // update node_state -> suspect
-                let mut members = this.members.write().await;
-                let mut requests = Vec::with_capacity(pending.len());
+                let gossip = GossipType::PingReq(PingReq {
+                    from: this.addr.to_string(),
+                    suspect: suspect.clone(),
+                });
+                requests.push(gossip);
+            }
 
-                for suspect in pending.keys() {
-                    members.insert(suspect.clone(), NodeState::Suspect as i32);
+            // 2 = constant probe_size, check if its to big for current cluster
+            let probe_size = 2.min(members.len() - 1 - pending.len());
 
-                    let gossip = GossipType::PingReq(PingReq {
-                        from: this.addr.to_string(),
-                        suspect: suspect.clone(),
-                    });
-                    requests.push(gossip);
-                }
-
-                for _ in 0..probe_size {
-                    let node_ids = members.keys().collect::<Vec<_>>();
-                    let target = loop {
-                        if let Some(&addr) = node_ids.choose(&mut rng) {
-                            // if not the node itself and is not already pending
-                            let pending = this.pending.read().await;
-                            if addr != &this.addr.to_string() && !pending.contains_key(addr) {
-                                break addr;
-                            }
-                            continue;
-                        };
+            for _ in 0..probe_size {
+                let node_ids = members.keys().collect::<Vec<_>>();
+                let target = loop {
+                    if let Some(&addr) = node_ids.choose(&mut rng) {
+                        // if not the node itself and is not already pending
+                        let pending = this.pending.read().await;
+                        if addr != &this.addr.to_string() && !pending.contains_key(addr) {
+                            break addr;
+                        }
+                        continue;
                     };
+                };
 
-                    for request in &requests {
-                        let mut buf = vec![];
-                        request.encode(&mut buf);
-                        let _ = this.socket.send_to(&buf, target).await;
-                    }
+                for request in &requests {
+                    let mut buf = vec![];
+                    request.encode(&mut buf);
+                    let _ = this.socket.send_to(&buf, target).await;
                 }
             }
         });
@@ -287,7 +284,12 @@ impl SwimNode {
     }
 
     async fn handle_ping_req(this: &SwimNode, req: &PingReq) -> Result<()> {
-        tracing::info!("[{}] handling PingReq for [{}]", this.addr, req.suspect);
+        tracing::info!(
+            "[{}] handling PingReq for [{}] issued by [{}]",
+            this.addr,
+            req.suspect,
+            req.from
+        );
         Ok(())
     }
 

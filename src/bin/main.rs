@@ -17,13 +17,13 @@ async fn main() -> Result<()> {
 
     n1.run().await?;
     n2.run().await?;
-    let (_p3, _d3) = n3.run().await?;
+    let (p3, d3) = n3.run().await?;
 
-    // use std::time::Duration;
-    // tokio::time::sleep(Duration::from_secs(5)).await;
-    // tracing::info!("[0.0.0.0:8082] shutting down");
-    // p3.abort();
-    // d3.abort();
+    use std::time::Duration;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    tracing::info!("[0.0.0.0:8082] shutting down");
+    p3.abort();
+    d3.abort();
 
     // simulate some application server
     let socket = UdpSocket::bind("0.0.0.0:9090").await?;
