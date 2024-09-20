@@ -6,10 +6,12 @@ message NodeId {
   string addr = 1;
 }
 
-message SwimMessage {
-  oneof msg {
+message Gossip {
+  oneof gossip_type {
     Ping ping = 1;
     Ack ack = 2;
+    JoinRequest join_request = 3;
+    JoinResponse join_response = 4;
   }
 }
 
@@ -19,4 +21,12 @@ message Ping {
 
 message Ack {
   NodeId from = 1;
+}
+
+message JoinRequest {
+  NodeId from = 1;
+}
+
+message JoinResponse {
+  repeated NodeId member = 1;
 }
