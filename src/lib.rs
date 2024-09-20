@@ -3,7 +3,7 @@ use snafu::location;
 use tokio::{net::UdpSocket, sync::RwLock};
 
 use crate::error::{Error, Result};
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 pub mod error;
 
@@ -60,6 +60,10 @@ impl SwimNode {
         })
     }
 
+    pub fn members(&self) {
+        tracing::info!("[{}] current members: {:?}", &self.addr, &self.members);
+    }
+
     pub async fn run(&self) -> Result<()> {
         tracing::info!("SwimNode listening on {}", self.addr);
 
@@ -72,6 +76,7 @@ impl SwimNode {
         }
 
         // self.send_message().await?;
+        self.check_members().await?;
         self.dispatch_message().await?;
 
         Ok(())
@@ -111,8 +116,6 @@ impl SwimNode {
                         tracing::error!("[{}] DispatchError: {}", &this.addr, e.to_string())
                     }
                 };
-
-                tracing::info!("[{}] current members: {:?}", &this.addr, &this.members);
             }
         });
 
@@ -151,7 +154,12 @@ impl SwimNode {
         let mut buf = vec![];
         gossip.encode(&mut buf);
 
-        this.socket.send_to(&buf, &from.addr).await?;
+        for member in members.iter() {
+            if member.addr == this.addr.to_string() {
+                continue;
+            }
+            this.socket.send_to(&buf, &member.addr).await?;
+        }
 
         Ok(())
     }
@@ -161,6 +169,19 @@ impl SwimNode {
 
         let mut members = this.members.write().await;
         *members = response.member.clone();
+
+        Ok(())
+    }
+
+    async fn check_members(&self) -> Result<()> {
+        let this = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(2000));
+            loop {
+                interval.tick().await;
+                this.members();
+            }
+        });
 
         Ok(())
     }
