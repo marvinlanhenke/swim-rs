@@ -55,10 +55,6 @@ impl SwimNode {
         })
     }
 
-    pub fn members(&self) {
-        tracing::info!("[{}] current members: {:?}", &self.addr, &self.members);
-    }
-
     pub async fn run(&self) -> Result<(JoinHandle<()>, JoinHandle<()>)> {
         tracing::info!("SwimNode listening on {}", self.addr);
 
@@ -290,6 +286,7 @@ impl SwimNode {
             req.suspect,
             req.from
         );
+
         Ok(())
     }
 
