@@ -18,7 +18,7 @@ const DEFAULT_PING_REQ_TIMEOUT: Duration = Duration::from_millis(900);
 const DEFAULT_SUSPECT_TIMEOUT: Duration = Duration::from_millis(6000);
 
 /// The buffer size for receiving new messages. Defaults to 1536 bytes.
-const DEFAULT_BUFFER_SIZE: usize = 1536;
+pub(crate) const DEFAULT_BUFFER_SIZE: usize = 1536;
 
 /// Builder for creating a [`SwimConfig`] with customized settings for a SWIM protocol node.
 /// Allows configuring timeouts, intervals, and known peers in the network.
@@ -37,8 +37,6 @@ pub struct SwimConfigBuilder {
     ping_req_timeout: Duration,
     /// The duration to wait before transitioning a node from suspected to dead.
     suspect_timeout: Duration,
-    /// The buffer size for receiving new messages. Defaults to 1536 bytes.
-    message_buffer_size: usize,
 }
 
 impl SwimConfigBuilder {
@@ -56,7 +54,6 @@ impl SwimConfigBuilder {
             ping_req_group_size: self.ping_req_group_size,
             ping_req_timeout: self.ping_req_timeout,
             suspect_timeout: self.suspect_timeout,
-            message_buffer_size: self.message_buffer_size,
         }
     }
 
@@ -113,7 +110,6 @@ impl Default for SwimConfigBuilder {
             ping_req_group_size: DEFAULT_PING_REQ_GROUP_SIZE,
             ping_req_timeout: DEFAULT_PING_REQ_TIMEOUT,
             suspect_timeout: DEFAULT_SUSPECT_TIMEOUT,
-            message_buffer_size: DEFAULT_BUFFER_SIZE,
         }
     }
 }
@@ -135,8 +131,6 @@ pub struct SwimConfig {
     ping_req_timeout: Duration,
     /// The duration to wait before transitioning a node from suspected to dead.
     suspect_timeout: Duration,
-    /// The buffer size for receiving new messages. Defaults to 1536 bytes.
-    message_buffer_size: usize,
 }
 
 impl SwimConfig {
@@ -178,11 +172,6 @@ impl SwimConfig {
     pub fn suspect_timeout(&self) -> Duration {
         self.suspect_timeout
     }
-
-    /// Returns the buffer size for receiving new messages.
-    pub fn message_buffer_size(&self) -> usize {
-        self.message_buffer_size
-    }
 }
 
 impl Default for SwimConfig {
@@ -195,9 +184,9 @@ impl Default for SwimConfig {
 mod tests {
     use std::time::Duration;
 
-    use crate::core::config::{
-        DEFAULT_BUFFER_SIZE, DEFAULT_PING_REQ_GROUP_SIZE, DEFAULT_PING_REQ_TIMEOUT,
-        DEFAULT_PING_TIMEOUT, DEFAULT_SUSPECT_TIMEOUT,
+    use crate::config::{
+        DEFAULT_PING_REQ_GROUP_SIZE, DEFAULT_PING_REQ_TIMEOUT, DEFAULT_PING_TIMEOUT,
+        DEFAULT_SUSPECT_TIMEOUT,
     };
 
     use super::SwimConfig;
@@ -215,6 +204,5 @@ mod tests {
         assert_eq!(config.ping_req_group_size(), DEFAULT_PING_REQ_GROUP_SIZE);
         assert_eq!(config.ping_req_timeout(), DEFAULT_PING_REQ_TIMEOUT);
         assert_eq!(config.suspect_timeout(), DEFAULT_SUSPECT_TIMEOUT);
-        assert_eq!(config.message_buffer_size(), DEFAULT_BUFFER_SIZE);
     }
 }

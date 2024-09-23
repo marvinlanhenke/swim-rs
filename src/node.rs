@@ -3,8 +3,10 @@ use std::sync::Arc;
 use prost::Message;
 use tokio::{net::UdpSocket, task::JoinHandle};
 
+use super::config::SwimConfig;
+
 use crate::{
-    config::{SwimConfig, DEFAULT_BUFFER_SIZE},
+    core::config::DEFAULT_BUFFER_SIZE,
     error::Result,
     pb::{
         swim_message::{self, Ack, Ping, PingReq},
