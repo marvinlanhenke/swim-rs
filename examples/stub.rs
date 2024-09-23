@@ -1,9 +1,6 @@
 use std::time::Duration;
 
-use swim_rs::{
-    core::{config::SwimConfig, node::SwimNode},
-    error::Result,
-};
+use swim_rs::{config::SwimConfig, core::node::SwimNode, error::Result};
 use tokio::net::UdpSocket;
 
 #[tokio::main]
