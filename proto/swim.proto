@@ -4,14 +4,53 @@ package swim;
 
 enum NodeState {
   Alive = 0;
-  Suspect = 1;
-  Dead = 2;
-  Pending = 3;
+  Pending = 1;
+  Suspected = 2;
+  Deceased = 3;
 }
 
 message Gossip {
+  message NodeJoinRequested {
+    string from = 1;
+  }
+
+  message NodeJoinConfirmed {
+    map<string, NodeState> members = 1;
+  }
+
+  message NodeSuspected {
+    string from = 1;
+    string suspect = 2;
+    uint64 suspect_incarnation_no = 3;
+  }
+
+  message NodeRecovered {
+    string from = 1;
+    string recovered = 2;
+    uint64 recovered_incarnation_no = 3;
+  }
+
+  message NodeDeceased {
+    string from = 1;
+    string deceased = 2;
+    uint64 deceased_incarnation_no = 3;
+  }
+
+  oneof event {
+    NodeJoinRequested node_join_requested = 1;
+    NodeJoinConfirmed node_join_confirmed = 2;
+    NodeSuspected node_suspected = 3;
+    NodeRecovered node_recovered = 4;
+    NodeDeceased node_deceased = 5;
+  }
+
+}
+
+message SwimMessage {
   message Ping {
     string from = 1;
+    string requested_by = 2;
+    Gossip gossip = 3;
   }
 
   message PingReq {
@@ -21,23 +60,13 @@ message Gossip {
 
   message Ack {
     string from = 1;
+    string forward_to = 2;
+    Gossip gossip = 3;
   }
 
-  message JoinRequest {
-    string from = 1;
-  }
-
-  message JoinResponse {
-    map<string, NodeState> members = 1;
-  }
-
-  oneof gossip_type {
+  oneof action {
     Ping ping = 1;
     PingReq ping_req = 2;
     Ack ack = 3;
-    JoinRequest join_request = 4;
-    JoinResponse join_response = 5;
   }
 }
-
-
