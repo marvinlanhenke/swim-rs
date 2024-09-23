@@ -10,13 +10,14 @@ use crate::{
     pb::{swim_message, SwimMessage},
 };
 
-use super::receiver::MessageReceiver;
+use super::{receiver::MessageReceiver, sender::MessageSender};
 
 #[derive(Clone, Debug)]
 pub struct SwimNode {
     addr: String,
     config: SwimConfig,
     receiver: MessageReceiver,
+    sender: MessageSender,
 }
 
 impl SwimNode {
@@ -27,12 +28,15 @@ impl SwimNode {
     ) -> Result<Self> {
         let addr = addr.into();
         let socket = Arc::new(socket);
-        let receiver = MessageReceiver::new(socket);
+
+        let receiver = MessageReceiver::new(socket.clone());
+        let sender = MessageSender::new(socket);
 
         Ok(Self {
             addr,
             config,
             receiver,
+            sender,
         })
     }
 
@@ -44,9 +48,22 @@ impl SwimNode {
         &self.config
     }
 
-    pub async fn run(&self) -> JoinHandle<()> {
+    pub async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
         init_tracing();
-        self.dispatch().await
+
+        (self.dispatch().await, self.healthcheck().await)
+    }
+
+    async fn healthcheck(&self) -> JoinHandle<()> {
+        let sender = self.sender.clone();
+        let interval = self.config.ping_interval();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(interval).await;
+                sender.send_ping().await;
+            }
+        })
     }
 
     async fn dispatch(&self) -> JoinHandle<()> {
