@@ -6,34 +6,10 @@ use tokio::{net::UdpSocket, task::JoinHandle};
 use crate::{
     config::{SwimConfig, DEFAULT_BUFFER_SIZE},
     error::Result,
-    pb::{
-        swim_message::{self, Ack, Ping, PingReq},
-        SwimMessage,
-    },
+    pb::{swim_message, SwimMessage},
 };
 
-#[derive(Clone, Debug)]
-struct MessageReceiver {
-    socket: Arc<UdpSocket>,
-}
-
-impl MessageReceiver {
-    async fn recv(&self, buf: &mut [u8]) -> Result<usize> {
-        Ok(self.socket.recv(buf).await?)
-    }
-
-    async fn handle_ping(&self, action: &Ping) {
-        println!("handle {action:?}");
-    }
-
-    async fn handle_ping_req(&self, action: &PingReq) {
-        println!("handle {action:?}");
-    }
-
-    async fn handle_ack(&self, action: &Ack) {
-        println!("handle {action:?}");
-    }
-}
+use super::receiver::MessageReceiver;
 
 #[derive(Clone, Debug)]
 pub struct SwimNode {
@@ -49,9 +25,8 @@ impl SwimNode {
         config: SwimConfig,
     ) -> Result<Self> {
         let addr = addr.into();
-        let receiver = MessageReceiver {
-            socket: Arc::new(socket),
-        };
+        let socket = Arc::new(socket);
+        let receiver = MessageReceiver::new(socket);
 
         Ok(Self {
             addr,
