@@ -22,14 +22,14 @@ impl MessageReceiver {
     }
 
     pub(crate) async fn handle_ping(&self, action: &Ping) {
-        println!("handle {action:?}");
+        tracing::info!("Handling {action:?}");
     }
 
     pub(crate) async fn handle_ping_req(&self, action: &PingReq) {
-        println!("handle {action:?}");
+        tracing::info!("Handling {action:?}");
     }
 
     pub(crate) async fn handle_ack(&self, action: &Ack) {
-        println!("handle {action:?}");
+        tracing::info!("Handling {action:?}");
     }
 }

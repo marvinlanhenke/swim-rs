@@ -6,6 +6,7 @@ use tokio::{net::UdpSocket, task::JoinHandle};
 use crate::{
     config::{SwimConfig, DEFAULT_BUFFER_SIZE},
     error::Result,
+    init_tracing,
     pb::{swim_message, SwimMessage},
 };
 
@@ -44,6 +45,7 @@ impl SwimNode {
     }
 
     pub async fn run(&self) -> JoinHandle<()> {
+        init_tracing();
         self.dispatch().await
     }
 
@@ -65,14 +67,16 @@ impl SwimNode {
                                     PingReq(ping_req) => receiver.handle_ping_req(&ping_req).await,
                                     Ack(ack) => receiver.handle_ack(&ack).await,
                                 },
-                                None => eprintln!("Error invalid message action"),
+                                None => tracing::error!(
+                                    "InvalidMessageError. You must provide a valid 'action'"
+                                ),
                             },
                             Err(e) => {
-                                eprintln!("Error while decoding message {e}")
+                                tracing::error!("DecodeError: {}", e.to_string());
                             }
                         };
                     }
-                    Err(_) => eprint!("Error while receiving message"),
+                    Err(e) => tracing::error!("ReceiveMessageError: {}", e.to_string()),
                 }
             }
         })
