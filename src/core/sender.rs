@@ -37,46 +37,35 @@ impl MessageSender {
     }
 
     pub(crate) async fn send_ping(&self) -> Result<()> {
-        if self.should_request_join() {
-            tracing::info!("[{}] sending JoinRequest", &self.addr);
+        let mut ping = Ping {
+            from: self.addr.clone(),
+            requested_by: "".to_string(),
+            gossip: None,
+        };
 
-            let from = self.addr.clone();
-            let requested_by = "".to_string();
-            let gossip = Some(Gossip {
-                event: Some(Event::NodeJoinRequested(NodeJoinRequested {
-                    from: from.clone(),
-                })),
-            });
+        match self.membership_list.get_random_member_list(1).first() {
+            Some((target, _)) => {
+                let action = Action::Ping(ping);
+                send_action(&self.socket, &action, &target).await?;
+            }
+            None => {
+                if self.should_request_join() {
+                    tracing::info!("[{}] sending JoinRequest", &self.addr);
 
-            let action = Action::Ping(Ping {
-                from,
-                requested_by,
-                gossip,
-            });
+                    if let Some(target) = self.config.known_peers().first() {
+                        let gossip = Gossip {
+                            event: Some(Event::NodeJoinRequested(NodeJoinRequested {
+                                from: self.addr.clone(),
+                            })),
+                        };
+                        ping.gossip = Some(gossip);
 
-            let target = self
-                .config
-                .known_peers()
-                .first()
-                .expect("should not be empty");
+                        let action = Action::Ping(ping);
 
-            send_action(&self.socket, &action, &target).await?;
-
-            return Ok(());
-        }
-
-        let from = self.addr.clone();
-        let requested_by = "".to_string();
-        let gossip = None;
-
-        let action = Action::Ping(Ping {
-            from,
-            requested_by,
-            gossip,
-        });
-
-        if let Some((target, _)) = self.membership_list.get_random_member_list(1).first() {
-            send_action(&self.socket, &action, &target).await?;
+                        send_action(&self.socket, &action, &target).await?;
+                    }
+                }
+            }
         };
 
         Ok(())
