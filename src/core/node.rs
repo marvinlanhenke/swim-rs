@@ -10,29 +10,33 @@ use crate::{
     pb::{swim_message, SwimMessage},
 };
 
-use super::{receiver::MessageReceiver, sender::MessageSender};
+use super::{member::MembershipList, receiver::MessageReceiver, sender::MessageSender};
 
 #[derive(Clone, Debug)]
 pub struct SwimNode {
     addr: String,
-    config: SwimConfig,
     receiver: MessageReceiver,
     sender: MessageSender,
+    membership_list: Arc<MembershipList>,
+    config: Arc<SwimConfig>,
 }
 
 impl SwimNode {
     pub async fn try_new(socket: UdpSocket, config: SwimConfig) -> Result<Self> {
         let addr = socket.local_addr()?.to_string();
         let socket = Arc::new(socket);
+        let config = Arc::new(config);
+        let membership_list = Arc::new(MembershipList::new(&addr));
 
         let receiver = MessageReceiver::new(&addr, socket.clone());
-        let sender = MessageSender::new(&addr, socket);
+        let sender = MessageSender::new(&addr, socket, membership_list.clone(), config.clone());
 
         Ok(Self {
             addr,
             config,
             receiver,
             sender,
+            membership_list,
         })
     }
 

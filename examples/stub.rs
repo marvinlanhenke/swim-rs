@@ -5,11 +5,20 @@ use tokio::net::UdpSocket;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let addr = "0.0.0.0:8080";
-    let socket = UdpSocket::bind(addr).await?;
-    let node = SwimNode::try_new(socket, SwimConfig::new()).await?;
+    let socket = UdpSocket::bind("0.0.0.0:8080").await?;
+    let node1 = SwimNode::try_new(socket, SwimConfig::new()).await?;
 
-    node.run().await;
+    let socket = UdpSocket::bind("0.0.0.0:8081").await?;
+    let node2 = SwimNode::try_new(
+        socket,
+        SwimConfig::builder()
+            .with_known_peers(&["0.0.0.0:8080"])
+            .build(),
+    )
+    .await?;
+
+    node1.run().await;
+    node2.run().await;
 
     tokio::time::sleep(Duration::from_secs(100)).await;
 
