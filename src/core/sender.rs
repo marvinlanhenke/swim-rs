@@ -5,7 +5,9 @@ use tokio::net::UdpSocket;
 use crate::config::SwimConfig;
 use crate::core::utils::send_action;
 use crate::error::Result;
+use crate::pb::gossip::{Event, NodeJoinRequested};
 use crate::pb::swim_message::{Action, Ping};
+use crate::pb::Gossip;
 
 use super::member::MembershipList;
 
@@ -37,6 +39,29 @@ impl MessageSender {
     pub(crate) async fn send_ping(&self) -> Result<()> {
         if self.should_request_join() {
             tracing::info!("[{}] sending JoinRequest", &self.addr);
+
+            let from = self.addr.clone();
+            let requested_by = "".to_string();
+            let gossip = Some(Gossip {
+                event: Some(Event::NodeJoinRequested(NodeJoinRequested {
+                    from: from.clone(),
+                })),
+            });
+
+            let action = Action::Ping(Ping {
+                from,
+                requested_by,
+                gossip,
+            });
+
+            let target = self
+                .config
+                .known_peers()
+                .first()
+                .expect("should not be empty");
+
+            send_action(&self.socket, &action, &target).await?;
+
             return Ok(());
         }
 
