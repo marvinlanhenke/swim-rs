@@ -7,7 +7,7 @@ use tokio::net::UdpSocket;
 async fn main() -> Result<()> {
     let addr = "0.0.0.0:8080";
     let socket = UdpSocket::bind(addr).await?;
-    let node = SwimNode::try_new(addr, socket, SwimConfig::new()).await?;
+    let node = SwimNode::try_new(socket, SwimConfig::new()).await?;
 
     node.run().await;
 

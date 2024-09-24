@@ -21,16 +21,12 @@ pub struct SwimNode {
 }
 
 impl SwimNode {
-    pub async fn try_new(
-        addr: impl Into<String>,
-        socket: UdpSocket,
-        config: SwimConfig,
-    ) -> Result<Self> {
-        let addr = addr.into();
+    pub async fn try_new(socket: UdpSocket, config: SwimConfig) -> Result<Self> {
+        let addr = socket.local_addr()?.to_string();
         let socket = Arc::new(socket);
 
-        let receiver = MessageReceiver::new(socket.clone());
-        let sender = MessageSender::new(socket);
+        let receiver = MessageReceiver::new(&addr, socket.clone());
+        let sender = MessageSender::new(&addr, socket);
 
         Ok(Self {
             addr,
@@ -60,8 +56,13 @@ impl SwimNode {
 
         tokio::spawn(async move {
             loop {
+                // within send ping we wait for ping_timeout
+                let _ = sender.send_ping().await;
+                // within send_ping_req we issue a ping_req is necessary and wait for timeout
+                sender.send_ping_req().await;
+                // if after ping_timeout and ping_req_timeout we still have suspects, we mark them
+                // as deceased; then we wait for next interval
                 tokio::time::sleep(interval).await;
-                sender.send_ping().await;
             }
         })
     }
@@ -80,7 +81,9 @@ impl SwimNode {
                         match SwimMessage::decode(&buf[..len]) {
                             Ok(message) => match message.action {
                                 Some(action) => match action {
-                                    Ping(ping) => receiver.handle_ping(&ping).await,
+                                    Ping(ping) => {
+                                        let _ = receiver.handle_ping(&ping).await;
+                                    }
                                     PingReq(ping_req) => receiver.handle_ping_req(&ping_req).await,
                                     Ack(ack) => receiver.handle_ack(&ack).await,
                                 },
