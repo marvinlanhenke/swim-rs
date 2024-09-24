@@ -52,10 +52,10 @@ impl SwimConfigBuilder {
     }
 
     /// Sets the known peers for this node in the cluster.
-    pub fn with_known_peers<T>(mut self, known_peers: T) -> Self
+    pub fn with_known_peers<I>(mut self, known_peers: I) -> Self
     where
-        T: IntoIterator,
-        T::Item: AsRef<str>,
+        I: IntoIterator,
+        I::Item: AsRef<str>,
     {
         self.known_peers = known_peers
             .into_iter()
