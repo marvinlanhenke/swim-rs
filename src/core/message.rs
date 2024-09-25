@@ -63,8 +63,6 @@ impl MessageHandler {
     }
 
     pub(crate) async fn send_join_req(&self, target: &str) -> Result<()> {
-        tracing::info!("[{}] sending JoinReq", &self.addr);
-
         let action = Action::JoinRequest(JoinRequest {
             from: self.addr.clone(),
         });
