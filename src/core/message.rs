@@ -51,7 +51,7 @@ impl MessageHandler {
         Ok(())
     }
 
-    pub(crate) async fn send_ping_req(&self, target: &str, suspect: &str) -> Result<()> {
+    pub(crate) async fn _send_ping_req(&self, target: &str, suspect: &str) -> Result<()> {
         let action = Action::PingReq(PingReq {
             from: self.addr.clone(),
             suspect: suspect.to_string(),
@@ -145,9 +145,7 @@ impl MessageHandler {
         tracing::info!("[{}] handling {action:?}", &self.addr);
 
         let iter = action.members.iter().map(|x| (x.0.clone(), *x.1));
-        self.membership_list.update_from_iter(iter);
-
-        Ok(())
+        self.membership_list.update_from_iter(iter)
     }
 
     fn handle_gossip(&self, _gossip: Option<&Gossip>) -> Option<Gossip> {
