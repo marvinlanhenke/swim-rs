@@ -220,6 +220,17 @@ impl MessageHandler {
 
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
         tracing::info!("[{}] handling {action:?}", &self.addr);
+
+        match action.forward_to.is_empty() {
+            true => self
+                .membership_list
+                .update_member(&action.from, NodeState::Alive),
+            false => {
+                self.send_action(&Action::Ack(action.clone()), &action.forward_to)
+                    .await?
+            }
+        };
+
         Ok(())
     }
 
