@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    config::{SwimConfig, DEFAULT_BUFFER_SIZE},
+    config::DEFAULT_BUFFER_SIZE,
+    core::utils::send_action,
     error::{Error, Result},
     pb::{
         swim_message::{self, Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
@@ -11,30 +12,14 @@ use crate::{
 
 use prost::Message;
 use snafu::location;
-use tokio::{net::UdpSocket, sync::RwLock};
+use tokio::net::UdpSocket;
 
 use super::member::MembershipList;
-
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum AckType {
-    PingAck,
-    PingReqAck,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum MessageHandlerState {
-    SendingPing,
-    SendingPingReq { target: String },
-    WaitingForAck { target: String, ack_type: AckType },
-    DeclaringNodeAsDead { target: String },
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct MessageHandler {
     addr: String,
     socket: Arc<UdpSocket>,
-    state: Arc<RwLock<MessageHandlerState>>,
-    config: Arc<SwimConfig>,
     membership_list: Arc<MembershipList>,
 }
 
@@ -42,140 +27,15 @@ impl MessageHandler {
     pub(crate) fn new(
         addr: impl Into<String>,
         socket: Arc<UdpSocket>,
-        config: Arc<SwimConfig>,
         membership_list: Arc<MembershipList>,
     ) -> Self {
         let addr = addr.into();
-        let state = Arc::new(RwLock::new(MessageHandlerState::SendingPing));
 
         Self {
             addr,
             socket,
-            state,
-            config,
             membership_list,
         }
-    }
-
-    pub(crate) async fn state(&self) -> MessageHandlerState {
-        let state = self.state.read().await;
-        (*state).clone()
-    }
-
-    pub(crate) async fn send_ping(&self) -> Result<()> {
-        tokio::time::sleep(self.config.ping_interval()).await;
-
-        let action = Action::Ping(Ping {
-            from: self.addr.clone(),
-            requested_by: "".to_string(),
-            gossip: None,
-        });
-
-        if let Some((target, _)) = self.membership_list.get_random_member_list(1, None).first() {
-            tracing::debug!("[{}] sending PING to {}", &self.addr, &target);
-            self.send_action(&action, &target).await?;
-
-            self.membership_list
-                .update_member(target, NodeState::Pending);
-
-            let mut state = self.state.write().await;
-            *state = MessageHandlerState::WaitingForAck {
-                target: target.clone(),
-                ack_type: AckType::PingAck,
-            };
-        };
-
-        Ok(())
-    }
-
-    pub(crate) async fn send_ping_req(&self, suspect: impl Into<String>) -> Result<()> {
-        let suspect = suspect.into();
-
-        self.membership_list
-            .update_member(&suspect, NodeState::Suspected);
-
-        let probe_group = self
-            .membership_list
-            .get_random_member_list(self.config.ping_req_group_size(), Some(&suspect));
-
-        for (target, _) in &probe_group {
-            let action = Action::PingReq(PingReq {
-                from: self.addr.clone(),
-                suspect: suspect.clone(),
-            });
-
-            tracing::debug!("[{}] sending PING_REQ to {}", &self.addr, &target);
-            self.send_action(&action, target).await?;
-        }
-
-        let mut state = self.state.write().await;
-        *state = MessageHandlerState::WaitingForAck {
-            target: suspect.clone(),
-            ack_type: AckType::PingReqAck,
-        };
-
-        Ok(())
-    }
-
-    pub(crate) async fn send_join_req(&self, target: &str) -> Result<()> {
-        let action = Action::JoinRequest(JoinRequest {
-            from: self.addr.clone(),
-        });
-
-        tracing::debug!("[{}] sending JOIN_REQ to {}", &self.addr, &target);
-        self.send_action(&action, target).await?;
-
-        Ok(())
-    }
-
-    pub(crate) async fn wait_for_ack(
-        &self,
-        target: impl Into<String>,
-        ack_type: &AckType,
-    ) -> Result<()> {
-        let target = target.into();
-
-        match ack_type {
-            AckType::PingAck => {
-                tracing::debug!("[{}] waiting for PING_ACK from {}", &self.addr, &target);
-                tokio::time::sleep(self.config.ping_timeout()).await;
-
-                let mut state = self.state.write().await;
-
-                match self.membership_list.member_state(&target)? {
-                    NodeState::Alive => *state = MessageHandlerState::SendingPing,
-                    _ => *state = MessageHandlerState::SendingPingReq { target },
-                };
-
-                Ok(())
-            }
-            AckType::PingReqAck => {
-                tracing::debug!("[{}] waiting for PING_REQ_ACK from {}", &self.addr, &target);
-                tokio::time::sleep(self.config.ping_req_timeout()).await;
-
-                let mut state = self.state.write().await;
-
-                match self.membership_list.member_state(&target)? {
-                    NodeState::Alive => *state = MessageHandlerState::SendingPing,
-                    _ => *state = MessageHandlerState::DeclaringNodeAsDead { target },
-                };
-
-                Ok(())
-            }
-        }
-    }
-
-    pub(crate) async fn declare_node_as_dead(&self, target: impl AsRef<str>) -> Result<()> {
-        let target = target.as_ref();
-
-        tracing::debug!("[{}] declaring NODE {} as deceased", &self.addr, target);
-        self.membership_list.members().remove(target);
-
-        // TODO: update disseminator, with deceased node to update all other nodes in the cluster
-        let mut state = self.state.write().await;
-        *state = MessageHandlerState::SendingPing;
-
-        Ok(())
     }
 
     pub(crate) async fn dispatch_action(&self) -> Result<()> {
@@ -220,7 +80,7 @@ impl MessageHandler {
             false => &action.requested_by,
         };
 
-        self.send_action(&message, target).await
+        send_action(&self.socket, &message, target).await
     }
 
     pub(crate) async fn handle_ping_req(&self, action: &PingReq) -> Result<()> {
@@ -235,7 +95,7 @@ impl MessageHandler {
             gossip: None,
         });
 
-        self.send_action(&action, &target).await
+        send_action(&self.socket, &action, &target).await
     }
 
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
@@ -246,8 +106,12 @@ impl MessageHandler {
                 .membership_list
                 .update_member(&action.from, NodeState::Alive),
             false => {
-                self.send_action(&Action::Ack(action.clone()), &action.forward_to)
-                    .await?
+                send_action(
+                    &self.socket,
+                    &Action::Ack(action.clone()),
+                    &action.forward_to,
+                )
+                .await?
             }
         };
 
@@ -263,7 +127,7 @@ impl MessageHandler {
         let members = self.membership_list.members_hashmap();
         let action = Action::JoinResponse(JoinResponse { members });
 
-        self.send_action(&action, target).await
+        send_action(&self.socket, &action, target).await
 
         // TODO: add new nodes to disseminator, to update all other nodes in the cluster as well
     }
@@ -279,11 +143,15 @@ impl MessageHandler {
         todo!()
     }
 
-    async fn send_action(&self, action: &Action, target: impl AsRef<str>) -> Result<()> {
-        let mut buf = vec![];
-        action.encode(&mut buf);
+    pub(crate) async fn send_join_req(&self, target: impl AsRef<str>) -> Result<()> {
+        let target = target.as_ref();
 
-        self.socket.send_to(&buf, target.as_ref()).await?;
+        let action = Action::JoinRequest(JoinRequest {
+            from: self.addr.clone(),
+        });
+
+        tracing::debug!("[{}] sending JOIN_REQ to {}", &self.addr, target);
+        send_action(&self.socket, &action, target).await?;
 
         Ok(())
     }

@@ -1,21 +1,14 @@
 use std::time::Duration;
 
-use swim_rs::{
-    config::SwimConfig,
-    core::{member::MembershipList, node::SwimNode},
-    error::Result,
-};
+use swim_rs::{config::SwimConfig, core::node::SwimNode, error::Result};
 use tokio::net::UdpSocket;
 
 async fn create_node(addr: &str, known_peers: &[&str]) -> Result<SwimNode> {
     let socket = UdpSocket::bind(addr).await?;
-    let membership_list = MembershipList::new(addr);
     SwimNode::try_new(
         socket,
-        membership_list,
         SwimConfig::builder().with_known_peers(known_peers).build(),
     )
-    .await
 }
 
 #[tokio::main]
