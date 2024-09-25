@@ -63,9 +63,12 @@ impl SwimNode {
 
     async fn healthcheck(&self) -> JoinHandle<()> {
         let message_handler = self.message_handler.clone();
+        let membership_list = self.membership_list.clone();
 
         tokio::spawn(async move {
             loop {
+                membership_list.wait_for_members().await;
+
                 let state = message_handler.state().await;
                 match state {
                     MessageHandlerState::SendingPing => {

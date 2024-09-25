@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use rand::{seq::IteratorRandom, thread_rng};
 use snafu::location;
+use tokio::sync::Notify;
 
 use crate::error::{Error, Result};
 use crate::pb::NodeState;
@@ -11,14 +13,28 @@ use crate::pb::NodeState;
 pub struct MembershipList {
     addr: String,
     members: DashMap<String, NodeState>,
+    notify: Arc<Notify>,
 }
 
 impl MembershipList {
     pub fn new(addr: impl Into<String>) -> Self {
         let addr = addr.into();
         let members = DashMap::from_iter([(addr.clone(), NodeState::Alive)]);
+        let notify = Arc::new(Notify::new());
 
-        Self { addr, members }
+        Self {
+            addr,
+            members,
+            notify,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn len(&self) -> usize {
+        self.members.len()
     }
 
     pub fn members(&self) -> &DashMap<String, NodeState> {
@@ -50,10 +66,12 @@ impl MembershipList {
 
     pub fn add_member(&self, addr: impl Into<String>) {
         self.members.insert(addr.into(), NodeState::Alive);
+        self.notify_waiters();
     }
 
     pub fn update_member(&self, addr: impl Into<String>, state: NodeState) {
         self.members.insert(addr.into(), state);
+        self.notify_waiters();
     }
 
     pub fn update_from_iter<I>(&self, iter: I) -> Result<()>
@@ -64,6 +82,8 @@ impl MembershipList {
             let value = NodeState::try_from(value)?;
             self.members.insert(key, value);
         }
+
+        self.notify_waiters();
 
         Ok(())
     }
@@ -92,6 +112,19 @@ impl MembershipList {
                 Some((entry.key().clone(), *entry.value()))
             })
             .choose_multiple(&mut rng, amount)
+    }
+
+    pub async fn wait_for_members(&self) {
+        while self.len() <= 1 {
+            tracing::info!("[{}] waiting for members", self.addr);
+            self.notify.notified().await;
+        }
+    }
+
+    fn notify_waiters(&self) {
+        if self.len() > 1 {
+            self.notify.notify_waiters();
+        }
     }
 }
 
