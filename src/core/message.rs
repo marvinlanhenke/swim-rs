@@ -1,24 +1,40 @@
 use std::sync::Arc;
 
 use crate::{
-    config::DEFAULT_BUFFER_SIZE,
+    config::{SwimConfig, DEFAULT_BUFFER_SIZE},
     error::{Error, Result},
     pb::{
         swim_message::{self, Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
-        Gossip, SwimMessage,
+        Gossip, NodeState, SwimMessage,
     },
 };
 
 use prost::Message;
 use snafu::location;
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, sync::RwLock};
 
 use super::member::MembershipList;
+
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum AckType {
+    PingAck,
+    PingReqAck,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum MessageHandlerState {
+    SendingPing,
+    SendingPingReq { target: String },
+    WaitingForAck { target: String, ack_type: AckType },
+    DeclaringNodeAsDead { target: String },
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct MessageHandler {
     addr: String,
     socket: Arc<UdpSocket>,
+    state: Arc<RwLock<MessageHandlerState>>,
+    config: Arc<SwimConfig>,
     membership_list: Arc<MembershipList>,
 }
 
@@ -26,14 +42,24 @@ impl MessageHandler {
     pub(crate) fn new(
         addr: impl Into<String>,
         socket: Arc<UdpSocket>,
+        config: Arc<SwimConfig>,
         membership_list: Arc<MembershipList>,
     ) -> Self {
         let addr = addr.into();
+        let state = Arc::new(RwLock::new(MessageHandlerState::SendingPing));
+
         Self {
             addr,
             socket,
+            state,
+            config,
             membership_list,
         }
+    }
+
+    pub(crate) async fn state(&self) -> MessageHandlerState {
+        let state = self.state.read().await;
+        (*state).clone()
     }
 
     pub(crate) async fn send_ping(&self) -> Result<()> {
@@ -43,21 +69,27 @@ impl MessageHandler {
             gossip: None,
         });
 
-        if let Some((target, _)) = self.membership_list.get_random_member_list(1).first() {
+        if let Some((target, _)) = self.membership_list.get_random_member_list(1, None).first() {
             self.send_action(&action, &target).await?;
-            self.membership_list.add_pending(target.clone());
+
+            self.membership_list
+                .update_member(target, NodeState::Pending);
+
+            let mut state = self.state.write().await;
+            *state = MessageHandlerState::WaitingForAck {
+                target: target.clone(),
+                ack_type: AckType::PingAck,
+            };
         };
 
         Ok(())
     }
 
-    pub(crate) async fn _send_ping_req(&self, target: &str, suspect: &str) -> Result<()> {
-        let action = Action::PingReq(PingReq {
+    pub(crate) async fn send_ping_req(&self, suspect: impl Into<String>) -> Result<()> {
+        let _action = Action::PingReq(PingReq {
             from: self.addr.clone(),
-            suspect: suspect.to_string(),
+            suspect: suspect.into(),
         });
-
-        self.send_action(&action, &target).await?;
 
         Ok(())
     }
@@ -70,6 +102,43 @@ impl MessageHandler {
         self.send_action(&action, target).await?;
 
         Ok(())
+    }
+
+    pub(crate) async fn wait_for_ack(
+        &self,
+        target: impl Into<String>,
+        ack_type: &AckType,
+    ) -> Result<()> {
+        let target = target.into();
+
+        match ack_type {
+            AckType::PingAck => {
+                tokio::time::sleep(self.config.ping_timeout()).await;
+
+                let mut state = self.state.write().await;
+                match self.membership_list.member_state(&target)? {
+                    NodeState::Alive => *state = MessageHandlerState::SendingPing,
+                    NodeState::Pending => *state = MessageHandlerState::SendingPingReq { target },
+                    _ => {}
+                };
+
+                Ok(())
+            }
+            AckType::PingReqAck => {
+                tokio::time::sleep(self.config.ping_req_timeout()).await;
+
+                let mut state = self.state.write().await;
+                match self.membership_list.member_state(&target)? {
+                    NodeState::Alive => *state = MessageHandlerState::SendingPing,
+                    NodeState::Suspected => {
+                        *state = MessageHandlerState::DeclaringNodeAsDead { target }
+                    }
+                    _ => {}
+                };
+
+                Ok(())
+            }
+        }
     }
 
     pub(crate) async fn dispatch_action(&self) -> Result<()> {
@@ -159,3 +228,6 @@ impl MessageHandler {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {}

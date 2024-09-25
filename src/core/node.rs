@@ -4,7 +4,10 @@ use tokio::{net::UdpSocket, task::JoinHandle};
 
 use crate::{config::SwimConfig, error::Result, init_tracing};
 
-use super::{member::MembershipList, message::MessageHandler};
+use super::{
+    member::MembershipList,
+    message::{MessageHandler, MessageHandlerState},
+};
 
 #[derive(Clone, Debug)]
 pub struct SwimNode {
@@ -28,6 +31,7 @@ impl SwimNode {
         let message_handler = Arc::new(MessageHandler::new(
             &addr,
             socket.clone(),
+            config.clone(),
             membership_list.clone(),
         ));
 
@@ -51,22 +55,32 @@ impl SwimNode {
         init_tracing();
 
         self.dispatch_join_request().await;
+        let dispatch_handle = self.dispatch().await;
+        let healthcheck_handle = self.healthcheck().await;
 
-        (self.dispatch().await, self.healthcheck().await)
+        (dispatch_handle, healthcheck_handle)
     }
 
     async fn healthcheck(&self) -> JoinHandle<()> {
         let message_handler = self.message_handler.clone();
-        let config = self.config.clone();
 
         tokio::spawn(async move {
             loop {
-                // TODO: StateTransition, req -> wait -> req
-                if let Err(e) = message_handler.send_ping().await {
-                    tracing::error!("SendPingError: {}", e.to_string());
+                let state = message_handler.state().await;
+                match state {
+                    MessageHandlerState::SendingPing => {
+                        if let Err(e) = message_handler.send_ping().await {
+                            tracing::error!("HealthcheckError: {}", e.to_string());
+                        }
+                    }
+                    MessageHandlerState::SendingPingReq { .. } => todo!(),
+                    MessageHandlerState::WaitingForAck { target, ack_type } => {
+                        if let Err(e) = message_handler.wait_for_ack(target, &ack_type).await {
+                            tracing::error!("HealthcheckError: {}", e.to_string());
+                        }
+                    }
+                    MessageHandlerState::DeclaringNodeAsDead { .. } => todo!(),
                 }
-
-                tokio::time::sleep(config.ping_interval()).await;
             }
         })
     }
