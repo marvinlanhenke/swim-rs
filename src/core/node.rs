@@ -69,17 +69,29 @@ impl SwimNode {
                 let state = message_handler.state().await;
                 match state {
                     MessageHandlerState::SendingPing => {
+                        tracing::info!("sending ping");
                         if let Err(e) = message_handler.send_ping().await {
                             tracing::error!("HealthcheckError: {}", e.to_string());
                         }
                     }
-                    MessageHandlerState::SendingPingReq { .. } => todo!(),
+                    MessageHandlerState::SendingPingReq { target } => {
+                        tracing::info!("sending ping_req");
+                        if let Err(e) = message_handler.send_ping_req(&target).await {
+                            tracing::error!("HealthcheckError: {}", e.to_string());
+                        }
+                    }
                     MessageHandlerState::WaitingForAck { target, ack_type } => {
+                        tracing::info!("sending waiting for ack");
                         if let Err(e) = message_handler.wait_for_ack(target, &ack_type).await {
                             tracing::error!("HealthcheckError: {}", e.to_string());
                         }
                     }
-                    MessageHandlerState::DeclaringNodeAsDead { .. } => todo!(),
+                    MessageHandlerState::DeclaringNodeAsDead { target } => {
+                        tracing::info!("declaring node as dead");
+                        if let Err(e) = message_handler.declare_node_as_dead(&target).await {
+                            tracing::error!("HealthcheckError: {}", e.to_string());
+                        }
+                    }
                 }
             }
         })

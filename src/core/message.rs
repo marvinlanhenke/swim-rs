@@ -86,10 +86,29 @@ impl MessageHandler {
     }
 
     pub(crate) async fn send_ping_req(&self, suspect: impl Into<String>) -> Result<()> {
-        let _action = Action::PingReq(PingReq {
-            from: self.addr.clone(),
-            suspect: suspect.into(),
-        });
+        let suspect = suspect.into();
+
+        self.membership_list
+            .update_member(&suspect, NodeState::Suspected);
+
+        let probe_group = self
+            .membership_list
+            .get_random_member_list(self.config.ping_req_group_size(), Some(&suspect));
+
+        for (target, _) in &probe_group {
+            let action = Action::PingReq(PingReq {
+                from: self.addr.clone(),
+                suspect: suspect.clone(),
+            });
+
+            self.send_action(&action, target).await?;
+        }
+
+        let mut state = self.state.write().await;
+        *state = MessageHandlerState::WaitingForAck {
+            target: suspect.clone(),
+            ack_type: AckType::PingReqAck,
+        };
 
         Ok(())
     }
@@ -116,10 +135,10 @@ impl MessageHandler {
                 tokio::time::sleep(self.config.ping_timeout()).await;
 
                 let mut state = self.state.write().await;
+
                 match self.membership_list.member_state(&target)? {
                     NodeState::Alive => *state = MessageHandlerState::SendingPing,
-                    NodeState::Pending => *state = MessageHandlerState::SendingPingReq { target },
-                    _ => {}
+                    _ => *state = MessageHandlerState::SendingPingReq { target },
                 };
 
                 Ok(())
@@ -128,17 +147,25 @@ impl MessageHandler {
                 tokio::time::sleep(self.config.ping_req_timeout()).await;
 
                 let mut state = self.state.write().await;
+
                 match self.membership_list.member_state(&target)? {
                     NodeState::Alive => *state = MessageHandlerState::SendingPing,
-                    NodeState::Suspected => {
-                        *state = MessageHandlerState::DeclaringNodeAsDead { target }
-                    }
-                    _ => {}
+                    _ => *state = MessageHandlerState::DeclaringNodeAsDead { target },
                 };
 
                 Ok(())
             }
         }
+    }
+
+    pub(crate) async fn declare_node_as_dead(&self, target: impl AsRef<str>) -> Result<()> {
+        self.membership_list.members().remove(target.as_ref());
+        // TODO: update disseminator, with deceased node to update all other nodes in the cluster
+
+        let mut state = self.state.write().await;
+        *state = MessageHandlerState::SendingPing;
+
+        Ok(())
     }
 
     pub(crate) async fn dispatch_action(&self) -> Result<()> {
@@ -206,6 +233,8 @@ impl MessageHandler {
         let action = Action::JoinResponse(JoinResponse { members });
 
         self.send_action(&action, target).await
+
+        // TODO: add new nodes to disseminator, to update all other nodes in the cluster as well
     }
 
     pub(crate) async fn handle_join_response(&self, action: &JoinResponse) -> Result<()> {
