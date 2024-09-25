@@ -215,7 +215,17 @@ impl MessageHandler {
 
     pub(crate) async fn handle_ping_req(&self, action: &PingReq) -> Result<()> {
         tracing::info!("[{}] handling {action:?}", &self.addr);
-        Ok(())
+
+        let requested_by = action.from.clone();
+        let target = action.suspect.clone();
+
+        let action = Action::Ping(Ping {
+            from: self.addr.clone(),
+            requested_by,
+            gossip: None,
+        });
+
+        self.send_action(&action, &target).await
     }
 
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
