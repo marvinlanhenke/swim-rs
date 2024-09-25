@@ -9,15 +9,8 @@ enum NodeState {
   Deceased = 3;
 }
 
+// JoinRequest + Response as separate message
 message Gossip {
-  message NodeJoinRequested {
-    string from = 1;
-  }
-
-  message NodeJoinConfirmed {
-    map<string, NodeState> members = 1;
-  }
-
   message NodeSuspected {
     string from = 1;
     string suspect = 2;
@@ -37,11 +30,9 @@ message Gossip {
   }
 
   oneof event {
-    NodeJoinRequested node_join_requested = 1;
-    NodeJoinConfirmed node_join_confirmed = 2;
-    NodeSuspected node_suspected = 3;
-    NodeRecovered node_recovered = 4;
-    NodeDeceased node_deceased = 5;
+    NodeSuspected node_suspected = 1;
+    NodeRecovered node_recovered = 2;
+    NodeDeceased node_deceased = 3;
   }
 
 }
@@ -64,9 +55,19 @@ message SwimMessage {
     Gossip gossip = 3;
   }
 
+  message JoinRequest {
+    string from = 1;
+  }
+
+  message JoinResponse {
+    map<string, NodeState> members = 1;
+  }
+
   oneof action {
     Ping ping = 1;
     PingReq ping_req = 2;
     Ack ack = 3;
+    JoinRequest join_request = 4;
+    JoinResponse join_response = 5;
   }
 }
