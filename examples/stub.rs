@@ -20,27 +20,13 @@ async fn create_node(addr: &str, known_peers: &[&str]) -> Result<SwimNode> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let socket = UdpSocket::bind("127.0.0.1:8080").await?;
-    let membership_list = MembershipList::new("127.0.0.1:8080");
-    membership_list.add_member("127.0.0.1:8081");
-    let node = SwimNode::try_new(socket, membership_list, SwimConfig::new()).await?;
+    let n1 = create_node("127.0.0.1:8080", &[]).await?;
+    let n2 = create_node("127.0.0.1:8081", &["127.0.0.1:8080"]).await?;
 
-    node.run().await;
+    n1.run().await;
+    n2.run().await;
 
     tokio::time::sleep(Duration::from_secs(100)).await;
 
     Ok(())
 }
-
-// #[tokio::main]
-// async fn main() -> Result<()> {
-//     let n1 = create_node("127.0.0.1:8080", &[]).await?;
-//     let n2 = create_node("127.0.0.1:8081", &["127.0.0.1:8080"]).await?;
-
-//     n1.run().await;
-//     n2.run().await;
-
-//     tokio::time::sleep(Duration::from_secs(100)).await;
-
-//     Ok(())
-// }

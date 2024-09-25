@@ -63,6 +63,8 @@ impl MessageHandler {
     }
 
     pub(crate) async fn send_ping(&self) -> Result<()> {
+        tokio::time::sleep(self.config.ping_interval()).await;
+
         let action = Action::Ping(Ping {
             from: self.addr.clone(),
             requested_by: "".to_string(),
@@ -70,6 +72,7 @@ impl MessageHandler {
         });
 
         if let Some((target, _)) = self.membership_list.get_random_member_list(1, None).first() {
+            tracing::debug!("[{}] sending PING to {}", &self.addr, &target);
             self.send_action(&action, &target).await?;
 
             self.membership_list
@@ -101,6 +104,7 @@ impl MessageHandler {
                 suspect: suspect.clone(),
             });
 
+            tracing::debug!("[{}] sending PING_REQ to {}", &self.addr, &target);
             self.send_action(&action, target).await?;
         }
 
@@ -118,6 +122,7 @@ impl MessageHandler {
             from: self.addr.clone(),
         });
 
+        tracing::debug!("[{}] sending JOIN_REQ to {}", &self.addr, &target);
         self.send_action(&action, target).await?;
 
         Ok(())
@@ -132,6 +137,7 @@ impl MessageHandler {
 
         match ack_type {
             AckType::PingAck => {
+                tracing::debug!("[{}] waiting for PING_ACK from {}", &self.addr, &target);
                 tokio::time::sleep(self.config.ping_timeout()).await;
 
                 let mut state = self.state.write().await;
@@ -144,6 +150,7 @@ impl MessageHandler {
                 Ok(())
             }
             AckType::PingReqAck => {
+                tracing::debug!("[{}] waiting for PING_REQ_ACK from {}", &self.addr, &target);
                 tokio::time::sleep(self.config.ping_req_timeout()).await;
 
                 let mut state = self.state.write().await;
@@ -159,9 +166,12 @@ impl MessageHandler {
     }
 
     pub(crate) async fn declare_node_as_dead(&self, target: impl AsRef<str>) -> Result<()> {
-        self.membership_list.members().remove(target.as_ref());
-        // TODO: update disseminator, with deceased node to update all other nodes in the cluster
+        let target = target.as_ref();
 
+        tracing::debug!("[{}] declaring NODE {} as deceased", &self.addr, target);
+        self.membership_list.members().remove(target);
+
+        // TODO: update disseminator, with deceased node to update all other nodes in the cluster
         let mut state = self.state.write().await;
         *state = MessageHandlerState::SendingPing;
 
@@ -191,11 +201,11 @@ impl MessageHandler {
     }
 
     pub(crate) async fn handle_ping(&self, action: &Ping) -> Result<()> {
-        tracing::info!("[{}] handling {action:?}", &self.addr);
+        tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         let from = self.addr.clone();
         let forward_to = action.requested_by.clone();
-        let gossip = self.handle_gossip(action.gossip.as_ref());
+        let gossip = None;
 
         let message = Action::Ack(Ack {
             from,
@@ -214,7 +224,7 @@ impl MessageHandler {
     }
 
     pub(crate) async fn handle_ping_req(&self, action: &PingReq) -> Result<()> {
-        tracing::info!("[{}] handling {action:?}", &self.addr);
+        tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         let requested_by = action.from.clone();
         let target = action.suspect.clone();
@@ -229,7 +239,7 @@ impl MessageHandler {
     }
 
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
-        tracing::info!("[{}] handling {action:?}", &self.addr);
+        tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         match action.forward_to.is_empty() {
             true => self
@@ -245,7 +255,7 @@ impl MessageHandler {
     }
 
     pub(crate) async fn handle_join_request(&self, action: &JoinRequest) -> Result<()> {
-        tracing::info!("[{}] handling {action:?}", &self.addr);
+        tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         let target = &action.from;
         self.membership_list.add_member(target);
@@ -259,13 +269,13 @@ impl MessageHandler {
     }
 
     pub(crate) async fn handle_join_response(&self, action: &JoinResponse) -> Result<()> {
-        tracing::info!("[{}] handling {action:?}", &self.addr);
+        tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         let iter = action.members.iter().map(|x| (x.0.clone(), *x.1));
         self.membership_list.update_from_iter(iter)
     }
 
-    fn handle_gossip(&self, _gossip: Option<&Gossip>) -> Option<Gossip> {
+    fn _handle_gossip(&self, _gossip: Option<&Gossip>) -> Option<Gossip> {
         todo!()
     }
 

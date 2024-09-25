@@ -116,7 +116,7 @@ impl MembershipList {
 
     pub async fn wait_for_members(&self) {
         while self.len() <= 1 {
-            tracing::info!("[{}] waiting for members", self.addr);
+            tracing::debug!("[{}] waiting for members", self.addr);
             self.notify.notified().await;
         }
     }
