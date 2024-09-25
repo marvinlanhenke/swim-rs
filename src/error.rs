@@ -9,6 +9,11 @@ pub enum Error {
         message: String,
         location: snafu::Location,
     },
+    #[snafu(display("InvalidDataError: {message}, {location}"))]
+    InvalidData {
+        message: String,
+        location: snafu::Location,
+    },
     #[snafu(display("IoError: {message}, {location}"))]
     Io {
         message: String,
@@ -21,6 +26,11 @@ pub enum Error {
     },
     #[snafu(display("ProstDecodeError: {message}, {location}"))]
     ProstDecode {
+        message: String,
+        location: snafu::Location,
+    },
+    #[snafu(display("ProstUnknownEnumValueError: {message}, {location}"))]
+    ProstUnknownEnumValue {
         message: String,
         location: snafu::Location,
     },
@@ -55,6 +65,7 @@ macro_rules! make_error_from {
 }
 
 make_error_from!(std::io::Error, Io);
+make_error_from!(prost::UnknownEnumValue, ProstUnknownEnumValue);
 make_error_from!(prost::DecodeError, ProstDecode);
 make_error_from!(prost::EncodeError, ProstEncode);
 make_error_from!(std::net::AddrParseError, AddrParse);
