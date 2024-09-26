@@ -3,7 +3,7 @@ use crate::pb::swim_message::Action;
 
 use super::transport::TransportLayer;
 
-pub async fn send_action<T: TransportLayer>(
+pub(crate) async fn send_action<T: TransportLayer>(
     socket: &T,
     action: &Action,
     target: impl AsRef<str>,

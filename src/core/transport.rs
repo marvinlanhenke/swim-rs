@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 #[async_trait]
-pub trait TransportLayer {
+pub(crate) trait TransportLayer {
     async fn recv(&self, buf: &mut [u8]) -> Result<usize>;
 
     async fn send_to<A>(&self, buf: &[u8], target: A) -> Result<usize>

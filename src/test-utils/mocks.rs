@@ -15,26 +15,26 @@ pub(crate) struct MockUdpSocket {
 }
 
 impl MockUdpSocket {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub async fn transmitted(&self) -> Vec<SwimMessage> {
+    pub(crate) async fn transmitted(&self) -> Vec<SwimMessage> {
         let tx = self.transmitted.lock().await;
         (*tx).clone()
     }
 
-    pub async fn add_transmitted(&self, message: SwimMessage) {
+    pub(crate) async fn add_transmitted(&self, message: SwimMessage) {
         let mut tx = self.transmitted.lock().await;
         tx.push(message);
     }
 
-    pub async fn received(&self) -> Vec<SwimMessage> {
+    pub(crate) async fn received(&self) -> Vec<SwimMessage> {
         let rx = self.received.lock().await;
         (*rx).clone()
     }
 
-    pub async fn add_received(&self, message: SwimMessage) {
+    pub(crate) async fn add_received(&self, message: SwimMessage) {
         let mut rx = self.received.lock().await;
         rx.push(message);
     }

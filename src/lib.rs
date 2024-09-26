@@ -2,7 +2,9 @@ use lazy_static::lazy_static;
 use tracing_subscriber::EnvFilter;
 
 pub mod api;
+
 mod core;
+
 mod error;
 pub use error::Result;
 

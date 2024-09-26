@@ -20,7 +20,7 @@ macro_rules! await_and_log_error {
 }
 
 #[derive(Clone, Debug)]
-pub struct SwimNode<T: TransportLayer> {
+pub(crate) struct SwimNode<T: TransportLayer> {
     addr: String,
     config: Arc<SwimConfig>,
     failure_detector: Arc<FailureDetector<T>>,
@@ -29,7 +29,7 @@ pub struct SwimNode<T: TransportLayer> {
 }
 
 impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
-    pub fn try_new(socket: T, config: SwimConfig) -> Result<Self> {
+    pub(crate) fn try_new(socket: T, config: SwimConfig) -> Result<Self> {
         let addr = socket.local_addr()?;
         let config = Arc::new(config);
         let socket = Arc::new(socket);
@@ -72,15 +72,15 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         })
     }
 
-    pub fn addr(&self) -> &str {
+    pub(crate) fn addr(&self) -> &str {
         &self.addr
     }
 
-    pub fn config(&self) -> &SwimConfig {
+    pub(crate) fn config(&self) -> &SwimConfig {
         &self.config
     }
 
-    pub async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
+    pub(crate) async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
         init_tracing();
 
         self.dispatch_join_request().await;
