@@ -163,7 +163,7 @@ mod tests {
     use crate::{
         core::{member::MembershipList, message::MessageHandler},
         pb::{
-            swim_message::{Ack, Action, Ping},
+            swim_message::{Ack, Action, Ping, PingReq},
             SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
@@ -179,11 +179,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_message_handle_ping_req() {
+        let message_handler = create_message_handler();
+
+        let action = PingReq {
+            from: "NODE_B".to_string(),
+            suspect: "NODE_C".to_string(),
+        };
+
+        message_handler.handle_ping_req(&action).await.unwrap();
+
+        let result = &message_handler.socket.transmitted().await[0];
+
+        let expected = SwimMessage {
+            action: Some(Action::Ping(Ping {
+                from: "NODE_A".to_string(),
+                requested_by: "NODE_B".to_string(),
+                gossip: None,
+            })),
+        };
+
+        assert_eq!(result, &expected);
+    }
+
+    #[tokio::test]
     async fn test_message_handle_ping() {
         let message_handler = create_message_handler();
 
         let action = Ping {
-            from: "localhost2".to_string(),
+            from: "NODE_B".to_string(),
             requested_by: "".to_string(),
             gossip: None,
         };
