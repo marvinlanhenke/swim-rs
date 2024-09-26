@@ -157,4 +157,49 @@ impl<T: TransportLayer> MessageHandler<T> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use std::sync::Arc;
+
+    use crate::{
+        core::{member::MembershipList, message::MessageHandler},
+        pb::{
+            swim_message::{Ack, Action, Ping},
+            SwimMessage,
+        },
+        test_utils::mocks::MockUdpSocket,
+    };
+
+    fn create_message_handler() -> MessageHandler<MockUdpSocket> {
+        let socket = Arc::new(MockUdpSocket::new());
+
+        let membership_list = Arc::new(MembershipList::new("NODE_A"));
+        membership_list.add_member("NODE_B");
+
+        MessageHandler::new("NODE_A", socket, membership_list)
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping() {
+        let message_handler = create_message_handler();
+
+        let action = Ping {
+            from: "localhost2".to_string(),
+            requested_by: "".to_string(),
+            gossip: None,
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        let result = &message_handler.socket.transmitted().await[0];
+
+        let expected = SwimMessage {
+            action: Some(Action::Ack(Ack {
+                from: "NODE_A".to_string(),
+                forward_to: "".to_string(),
+                gossip: None,
+            })),
+        };
+
+        assert_eq!(result, &expected);
+    }
+}
