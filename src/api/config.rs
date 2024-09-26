@@ -14,6 +14,9 @@ const DEFAULT_PING_REQ_GROUP_SIZE: usize = 1;
 /// If no ACK is received within this time, the suspected node is still considered unreachable.
 const DEFAULT_PING_REQ_TIMEOUT: Duration = Duration::from_millis(1000);
 
+/// Default timeout until a suspected node is decleared as deceased.
+const DEFAULT_SUSPECT_TIMEOUT: Duration = Duration::from_millis(6000);
+
 /// The buffer size for receiving new messages. Defaults to 1536 bytes.
 pub(crate) const DEFAULT_BUFFER_SIZE: usize = 1536;
 
@@ -32,6 +35,8 @@ pub struct SwimConfigBuilder {
     ping_req_group_size: usize,
     /// The duration to wait for an ACK after sending a PING-REQ.
     ping_req_timeout: Duration,
+    /// The duration to wait for until a suspected node is decleared as deceased.
+    suspect_timeout: Duration,
 }
 
 impl SwimConfigBuilder {
@@ -48,6 +53,7 @@ impl SwimConfigBuilder {
             ping_timeout: self.ping_timeout,
             ping_req_group_size: self.ping_req_group_size,
             ping_req_timeout: self.ping_req_timeout,
+            suspect_timeout: self.suspect_timeout,
         }
     }
 
@@ -87,6 +93,12 @@ impl SwimConfigBuilder {
         self.ping_req_timeout = ping_req_timeout;
         self
     }
+
+    /// Sets the timeout to wait for until a suspected node is decleared as deceased.
+    pub fn with_suspect_timeout(mut self, suspect_timeout: Duration) -> Self {
+        self.suspect_timeout = suspect_timeout;
+        self
+    }
 }
 
 impl Default for SwimConfigBuilder {
@@ -97,6 +109,7 @@ impl Default for SwimConfigBuilder {
             ping_timeout: DEFAULT_PING_TIMEOUT,
             ping_req_group_size: DEFAULT_PING_REQ_GROUP_SIZE,
             ping_req_timeout: DEFAULT_PING_REQ_TIMEOUT,
+            suspect_timeout: DEFAULT_SUSPECT_TIMEOUT,
         }
     }
 }
@@ -116,6 +129,8 @@ pub struct SwimConfig {
     ping_req_group_size: usize,
     /// The duration to wait for an ACK after sending a PING-REQ.
     ping_req_timeout: Duration,
+    /// The duration to wait for until a suspected node is decleared as deceased.
+    suspect_timeout: Duration,
 }
 
 impl SwimConfig {
@@ -152,6 +167,11 @@ impl SwimConfig {
     pub fn ping_req_timeout(&self) -> Duration {
         self.ping_req_timeout
     }
+
+    /// Returns the duration to wait for until a suspected node is decleared as deceased.
+    pub fn suspect_timeout(&self) -> Duration {
+        self.suspect_timeout
+    }
 }
 
 impl Default for SwimConfig {
@@ -166,6 +186,7 @@ mod tests {
 
     use crate::api::config::{
         DEFAULT_PING_REQ_GROUP_SIZE, DEFAULT_PING_REQ_TIMEOUT, DEFAULT_PING_TIMEOUT,
+        DEFAULT_SUSPECT_TIMEOUT,
     };
 
     use super::SwimConfig;
@@ -182,5 +203,6 @@ mod tests {
         assert_eq!(config.ping_timeout(), DEFAULT_PING_TIMEOUT);
         assert_eq!(config.ping_req_group_size(), DEFAULT_PING_REQ_GROUP_SIZE);
         assert_eq!(config.ping_req_timeout(), DEFAULT_PING_REQ_TIMEOUT);
+        assert_eq!(config.suspect_timeout(), DEFAULT_SUSPECT_TIMEOUT);
     }
 }
