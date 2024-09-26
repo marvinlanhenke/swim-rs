@@ -154,11 +154,17 @@ impl<T: TransportLayer> FailureDetector<T> {
     // wait for a final suspect_timeout in yet another tokio::spawn task (add to config)
     // after timeout check if node is still marked as suspect, if yes -> remove from members
     // and disseminate this update through the cluster as Gossip
-    pub(crate) async fn declare_node_as_dead(&self, target: impl AsRef<str>) -> Result<()> {
-        let target = target.as_ref();
+    pub(crate) async fn declare_node_as_dead(&self, target: impl Into<String>) -> Result<()> {
+        let addr = self.addr.clone();
+        let target = target.into();
+        let membership_list = self.membership_list.clone();
+        let suspect_timeout = self.config.suspect_timeout();
 
-        tracing::debug!("[{}] declaring NODE {} as deceased", &self.addr, target);
-        self.membership_list.members().remove(target);
+        tokio::spawn(async move {
+            tokio::time::sleep(suspect_timeout).await;
+            tracing::debug!("[{}] declaring NODE {} as deceased", &addr, &target);
+            membership_list.members().remove(&target);
+        });
 
         let mut state = self.state.write().await;
         *state = FailureDetectorState::SendingPing;
@@ -208,8 +214,6 @@ mod tests {
             .declare_node_as_dead("NODE_B")
             .await
             .unwrap();
-
-        assert_eq!(failure_detector.membership_list.len(), 1);
 
         let result = failure_detector.state().await;
         let expected = FailureDetectorState::SendingPing;
