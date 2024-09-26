@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::task::JoinHandle;
 
-use crate::{config::SwimConfig, error::Result, init_tracing};
+use crate::{api::config::SwimConfig, error::Result, init_tracing};
 
 use super::{
     detection::{FailureDetector, FailureDetectorState},

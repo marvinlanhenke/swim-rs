@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::config::SwimConfig;
+use crate::api::config::SwimConfig;
 use crate::core::utils::send_action;
 use crate::error::Result;
 use crate::pb::swim_message::{Action, Ping, PingReq};

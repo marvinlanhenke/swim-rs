@@ -72,7 +72,7 @@ mod tests {
             swim_message::{Action, Ping},
             SwimMessage,
         },
-        utils::MockUdpSocket,
+        test_utils::mocks::MockUdpSocket,
     };
 
     #[tokio::test]

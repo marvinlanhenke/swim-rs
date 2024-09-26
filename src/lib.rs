@@ -1,10 +1,14 @@
 use lazy_static::lazy_static;
 use tracing_subscriber::EnvFilter;
 
-pub mod config;
+pub mod api;
 pub mod core;
 pub mod error;
-mod utils;
+
+#[cfg(any(test, feature = "test-util"))]
+#[path = "./test-utils/mod.rs"]
+#[doc(hidden)]
+pub mod test_utils;
 
 pub mod pb {
     include!(concat!(env!("OUT_DIR"), "/swim.rs"));

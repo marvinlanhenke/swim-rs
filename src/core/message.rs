@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    config::DEFAULT_BUFFER_SIZE,
+    api::config::DEFAULT_BUFFER_SIZE,
     core::utils::send_action,
     error::{Error, Result},
     pb::{

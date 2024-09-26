@@ -164,7 +164,7 @@ impl Default for SwimConfig {
 mod tests {
     use std::time::Duration;
 
-    use crate::config::{
+    use crate::api::config::{
         DEFAULT_PING_REQ_GROUP_SIZE, DEFAULT_PING_REQ_TIMEOUT, DEFAULT_PING_TIMEOUT,
     };
 
