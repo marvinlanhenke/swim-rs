@@ -135,12 +135,33 @@ mod tests {
     use super::MembershipList;
 
     #[test]
+    fn test_membershiplist_update_member() {
+        let membership_list = MembershipList::new("NODE_A");
+        membership_list.add_member("NODE_B");
+        membership_list.update_member("NODE_B", NodeState::Pending);
+
+        assert_eq!(membership_list.len(), 2);
+        assert_eq!(
+            membership_list.member_state("NODE_B").unwrap(),
+            NodeState::Pending
+        );
+    }
+
+    #[test]
+    fn test_membershiplist_add_member() {
+        let membership_list = MembershipList::new("NODE_A");
+        membership_list.add_member("NODE_B");
+        membership_list.add_member("NODE_C");
+
+        assert_eq!(membership_list.len(), 3);
+        assert!(membership_list.members().contains_key("NODE_B"));
+        assert!(membership_list.members().contains_key("NODE_C"));
+    }
+
+    #[test]
     fn test_membershiplist_get_random_member() {
-        let addr = "127.0.0.1:8080";
-        let membership_list = MembershipList::new(addr);
-        membership_list
-            .update_from_iter([("127.0.0.1:8081".to_string(), NodeState::Alive as i32)])
-            .unwrap();
+        let membership_list = MembershipList::new("NODE_A");
+        membership_list.add_member("NODE_B");
 
         let random_members = membership_list.get_random_member_list(1, None);
         assert_eq!(random_members.len(), 1);
@@ -155,20 +176,20 @@ mod tests {
     #[test]
     fn test_membershiplist_update_from_iter() {
         let iter = [
-            ("127.0.0.1:8080".to_string(), NodeState::Suspected as i32),
-            ("127.0.0.1:8081".to_string(), NodeState::Alive as i32),
-            ("127.0.0.1:8082".to_string(), NodeState::Alive as i32),
+            ("NODE_A".to_string(), NodeState::Suspected as i32),
+            ("NODE_B".to_string(), NodeState::Alive as i32),
+            ("NODE_C".to_string(), NodeState::Alive as i32),
         ];
-        let addr = "127.0.0.1:8080";
+        let addr = "NODE_A";
         let membership_list = MembershipList::new(addr);
         membership_list.update_from_iter(iter).unwrap();
 
         let members = membership_list.members();
 
         assert_eq!(members.len(), 3);
-        assert!(members.contains_key("127.0.0.1:8080"));
+        assert!(members.contains_key("NODE_A"));
         assert_eq!(
-            members.get("127.0.0.1:8080").unwrap().value(),
+            members.get("NODE_A").unwrap().value(),
             &NodeState::Suspected
         );
     }
