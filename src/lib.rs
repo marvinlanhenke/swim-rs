@@ -4,6 +4,7 @@ use tracing_subscriber::EnvFilter;
 pub mod config;
 pub mod core;
 pub mod error;
+mod utils;
 
 pub mod pb {
     include!(concat!(env!("OUT_DIR"), "/swim.rs"));
