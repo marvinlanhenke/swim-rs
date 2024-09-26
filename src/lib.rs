@@ -2,15 +2,16 @@ use lazy_static::lazy_static;
 use tracing_subscriber::EnvFilter;
 
 pub mod api;
-pub mod core;
-pub mod error;
+mod core;
+mod error;
+pub use error::Result;
 
 #[cfg(any(test, feature = "test-util"))]
 #[path = "./test-utils/mod.rs"]
 #[doc(hidden)]
-pub mod test_utils;
+mod test_utils;
 
-pub mod pb {
+mod pb {
     include!(concat!(env!("OUT_DIR"), "/swim.rs"));
 }
 
@@ -22,6 +23,6 @@ lazy_static! {
     };
 }
 
-pub(crate) fn init_tracing() {
+fn init_tracing() {
     lazy_static::initialize(&TRACING);
 }
