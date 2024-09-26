@@ -105,12 +105,11 @@ impl<T: TransportLayer> MessageHandler<T> {
                 .membership_list
                 .update_member(&action.from, NodeState::Alive),
             false => {
-                send_action(
-                    &*self.socket,
-                    &Action::Ack(action.clone()),
-                    &action.forward_to,
-                )
-                .await?
+                let target = &action.forward_to;
+                let mut forwarded_ack = action.clone();
+                forwarded_ack.forward_to = "".to_string();
+
+                send_action(&*self.socket, &Action::Ack(forwarded_ack), target).await?
             }
         };
 
@@ -257,7 +256,7 @@ mod tests {
         let expected = SwimMessage {
             action: Some(Action::Ack(Ack {
                 from: "NODE_B".to_string(),
-                forward_to: "NODE_C".to_string(),
+                forward_to: "".to_string(),
                 gossip: None,
             })),
         };
