@@ -179,6 +179,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_message_handle_join_response() {
+        let message_handler = create_message_handler();
+
+        let mut members = message_handler.membership_list.members_hashmap();
+        members.insert("NODE_C".to_string(), NodeState::Alive as i32);
+        members.insert("NODE_D".to_string(), NodeState::Alive as i32);
+
+        let action = JoinResponse { members };
+
+        message_handler.handle_join_response(&action).await.unwrap();
+
+        let result = message_handler.membership_list.members();
+
+        assert_eq!(result.len(), 4);
+        assert!(result.contains_key("NODE_C"));
+        assert!(result.contains_key("NODE_D"));
+    }
+
+    #[tokio::test]
     async fn test_message_handle_join_request() {
         let message_handler = create_message_handler();
 
