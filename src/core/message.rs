@@ -179,6 +179,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_message_send_join_request() {
+        let message_handler = create_message_handler();
+
+        message_handler.send_join_req("NODE_B").await.unwrap();
+
+        let result = &message_handler.socket.transmitted().await[0];
+
+        let expected = SwimMessage {
+            action: Some(Action::JoinRequest(JoinRequest {
+                from: "NODE_A".to_string(),
+            })),
+        };
+
+        assert_eq!(result, &expected);
+    }
+
+    #[tokio::test]
     async fn test_message_handle_join_response() {
         let message_handler = create_message_handler();
 
