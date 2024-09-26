@@ -199,6 +199,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_detection_declare_node_as_dead() {
+        let failure_detector = create_failure_detector();
+        failure_detector
+            .declare_node_as_dead("NODE_B")
+            .await
+            .unwrap();
+
+        assert_eq!(failure_detector.membership_list.len(), 1);
+
+        let result = failure_detector.state().await;
+        let expected = FailureDetectorState::SendingPing;
+        assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
     async fn test_detection_wait_for_ack_ping_req() {
         let failure_detector = create_failure_detector();
         failure_detector
