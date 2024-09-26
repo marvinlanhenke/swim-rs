@@ -164,7 +164,7 @@ mod tests {
         core::{member::MembershipList, message::MessageHandler},
         pb::{
             swim_message::{Ack, Action, Ping, PingReq},
-            SwimMessage,
+            NodeState, SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
     };
@@ -176,6 +176,56 @@ mod tests {
         membership_list.add_member("NODE_B");
 
         MessageHandler::new("NODE_A", socket, membership_list)
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ack_with_forward() {
+        let message_handler = create_message_handler();
+
+        let action = Ack {
+            from: "NODE_B".to_string(),
+            forward_to: "NODE_C".to_string(),
+            gossip: None,
+        };
+
+        message_handler.handle_ack(&action).await.unwrap();
+
+        let result = &message_handler.socket.transmitted().await[0];
+
+        let expected = SwimMessage {
+            action: Some(Action::Ack(Ack {
+                from: "NODE_B".to_string(),
+                forward_to: "NODE_C".to_string(),
+                gossip: None,
+            })),
+        };
+
+        assert_eq!(result, &expected);
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ack_no_forward() {
+        let message_handler = create_message_handler();
+
+        message_handler
+            .membership_list
+            .update_member("NODE_B", NodeState::Pending);
+
+        let action = Ack {
+            from: "NODE_B".to_string(),
+            forward_to: "".to_string(),
+            gossip: None,
+        };
+
+        message_handler.handle_ack(&action).await.unwrap();
+
+        let result = message_handler
+            .membership_list
+            .member_state("NODE_B")
+            .unwrap();
+        let expected = NodeState::Alive;
+
+        assert_eq!(result, expected);
     }
 
     #[tokio::test]
