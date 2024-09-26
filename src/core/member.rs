@@ -3,21 +3,20 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use rand::{seq::IteratorRandom, thread_rng};
-use snafu::location;
 use tokio::sync::Notify;
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::pb::NodeState;
 
 #[derive(Clone, Debug)]
-pub(crate) struct MembershipList {
+pub struct MembershipList {
     addr: String,
     members: DashMap<String, NodeState>,
     notify: Arc<Notify>,
 }
 
 impl MembershipList {
-    pub(crate) fn new(addr: impl Into<String>) -> Self {
+    pub fn new(addr: impl Into<String>) -> Self {
         let addr = addr.into();
         let members = DashMap::from_iter([(addr.clone(), NodeState::Alive)]);
         let notify = Arc::new(Notify::new());
@@ -29,48 +28,41 @@ impl MembershipList {
         }
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn len(&self) -> usize {
         self.members.len()
     }
 
-    pub(crate) fn members(&self) -> &DashMap<String, NodeState> {
+    pub fn members(&self) -> &DashMap<String, NodeState> {
         &self.members
     }
 
-    pub(crate) fn members_hashmap(&self) -> HashMap<String, i32> {
+    pub fn members_hashmap(&self) -> HashMap<String, i32> {
         self.members
             .iter()
             .map(|x| (x.key().clone(), *x.value() as i32))
             .collect()
     }
 
-    pub(crate) fn member_state(&self, addr: impl AsRef<str>) -> Result<NodeState> {
+    pub fn member_state(&self, addr: impl AsRef<str>) -> Option<NodeState> {
         let addr = addr.as_ref();
-
-        let state = match self.members.get(addr) {
-            Some(state) => *state.value(),
-            None => {
-                return Err(Error::InvalidData {
-                    message: format!("Node with addr {} is not a member", addr),
-                    location: location!(),
-                });
-            }
-        };
-
-        Ok(state)
+        self.members.get(addr).map(|s| *s.value())
     }
 
-    pub(crate) fn add_member(&self, addr: impl Into<String>) {
+    pub fn add_member(&self, addr: impl Into<String>) {
         self.members.insert(addr.into(), NodeState::Alive);
         self.notify_waiters();
     }
 
-    pub(crate) fn update_member(&self, addr: impl Into<String>, state: NodeState) {
+    pub fn update_member(&self, addr: impl Into<String>, state: NodeState) {
         self.members.insert(addr.into(), state);
         self.notify_waiters();
     }
 
-    pub(crate) fn update_from_iter<I>(&self, iter: I) -> Result<()>
+    pub fn update_from_iter<I>(&self, iter: I) -> Result<()>
     where
         I: IntoIterator<Item = (String, i32)>,
     {

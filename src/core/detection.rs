@@ -127,9 +127,12 @@ impl<T: TransportLayer> FailureDetector<T> {
 
                 let mut state = self.state.write().await;
 
-                match self.membership_list.member_state(&target)? {
-                    NodeState::Alive => *state = FailureDetectorState::SendingPing,
-                    _ => *state = FailureDetectorState::SendingPingReq { target },
+                match self.membership_list.member_state(&target) {
+                    Some(node_state) => match node_state {
+                        NodeState::Alive => *state = FailureDetectorState::SendingPing,
+                        _ => *state = FailureDetectorState::SendingPingReq { target },
+                    },
+                    None => *state = FailureDetectorState::SendingPing,
                 };
 
                 Ok(())
@@ -140,9 +143,12 @@ impl<T: TransportLayer> FailureDetector<T> {
 
                 let mut state = self.state.write().await;
 
-                match self.membership_list.member_state(&target)? {
-                    NodeState::Alive => *state = FailureDetectorState::SendingPing,
-                    _ => *state = FailureDetectorState::DeclaringNodeAsDead { target },
+                match self.membership_list.member_state(&target) {
+                    Some(node_state) => match node_state {
+                        NodeState::Alive => *state = FailureDetectorState::SendingPing,
+                        _ => *state = FailureDetectorState::DeclaringNodeAsDead { target },
+                    },
+                    None => *state = FailureDetectorState::SendingPing,
                 };
 
                 Ok(())
