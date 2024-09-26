@@ -19,9 +19,19 @@ impl MockUdpSocket {
         Self::default()
     }
 
+    pub async fn transmitted(&self) -> Vec<SwimMessage> {
+        let tx = self.transmitted.lock().await;
+        (*tx).clone()
+    }
+
     pub async fn add_transmitted(&self, message: SwimMessage) {
         let mut tx = self.transmitted.lock().await;
         tx.push(message);
+    }
+
+    pub async fn received(&self) -> Vec<SwimMessage> {
+        let rx = self.received.lock().await;
+        (*rx).clone()
     }
 
     pub async fn add_received(&self, message: SwimMessage) {
@@ -58,7 +68,10 @@ impl TransportLayer for MockUdpSocket {
 mod tests {
     use crate::{
         core::transport::TransportLayer,
-        pb::swim_message::{Action, Ping},
+        pb::{
+            swim_message::{Action, Ping},
+            SwimMessage,
+        },
         utils::MockUdpSocket,
     };
 
@@ -66,33 +79,43 @@ mod tests {
     async fn test_mock_udp_socket_send_to() {
         let socket = MockUdpSocket::new();
 
-        let message = Action::Ping(Ping {
+        let action = Action::Ping(Ping {
             from: "localhost".to_string(),
             requested_by: "".to_string(),
             gossip: None,
         });
 
         let mut buf = vec![];
-        message.encode(&mut buf);
+        action.encode(&mut buf);
 
         socket.send_to(&buf, "test_socket").await.unwrap();
-        println!("{socket:?}");
+
+        let message = SwimMessage {
+            action: Some(action),
+        };
+
+        assert_eq!(&message, &socket.transmitted().await[0]);
     }
 
     #[tokio::test]
     async fn test_mock_udp_socket_received() {
         let socket = MockUdpSocket::new();
 
-        let message = Action::Ping(Ping {
+        let action = Action::Ping(Ping {
             from: "localhost".to_string(),
             requested_by: "".to_string(),
             gossip: None,
         });
 
         let mut buf = vec![];
-        message.encode(&mut buf);
+        action.encode(&mut buf);
 
         socket.recv(&mut buf).await.unwrap();
-        println!("{socket:?}");
+
+        let message = SwimMessage {
+            action: Some(action),
+        };
+
+        assert_eq!(&message, &socket.received().await[0]);
     }
 }
