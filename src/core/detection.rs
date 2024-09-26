@@ -175,7 +175,7 @@ mod tests {
             member::MembershipList,
         },
         pb::{
-            swim_message::{Action, Ping},
+            swim_message::{Action, Ping, PingReq},
             NodeState, SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
@@ -196,6 +196,101 @@ mod tests {
         membership_list.add_member("NODE_B");
 
         FailureDetector::new("NODE_A", socket, config, membership_list)
+    }
+
+    #[tokio::test]
+    async fn test_detection_wait_for_ack_ping_req() {
+        let failure_detector = create_failure_detector();
+        failure_detector
+            .membership_list
+            .update_member("NODE_B", NodeState::Suspected);
+
+        failure_detector
+            .wait_for_ack("NODE_B", &AckType::PingReqAck)
+            .await
+            .unwrap();
+
+        let result = failure_detector.state().await;
+        let expected = FailureDetectorState::DeclaringNodeAsDead {
+            target: "NODE_B".to_string(),
+        };
+        assert_eq!(result, expected);
+
+        failure_detector
+            .membership_list
+            .update_member("NODE_B", NodeState::Alive);
+
+        failure_detector
+            .wait_for_ack("NODE_B", &AckType::PingReqAck)
+            .await
+            .unwrap();
+
+        let result = failure_detector.state().await;
+        let expected = FailureDetectorState::SendingPing;
+        assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn test_detection_wait_for_ack_ping() {
+        let failure_detector = create_failure_detector();
+        failure_detector
+            .membership_list
+            .update_member("NODE_B", NodeState::Pending);
+
+        failure_detector
+            .wait_for_ack("NODE_B", &AckType::PingAck)
+            .await
+            .unwrap();
+
+        let result = failure_detector.state().await;
+        let expected = FailureDetectorState::SendingPingReq {
+            target: "NODE_B".to_string(),
+        };
+        assert_eq!(result, expected);
+
+        failure_detector
+            .membership_list
+            .update_member("NODE_B", NodeState::Alive);
+
+        failure_detector
+            .wait_for_ack("NODE_B", &AckType::PingAck)
+            .await
+            .unwrap();
+
+        let result = failure_detector.state().await;
+        let expected = FailureDetectorState::SendingPing;
+        assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn test_detection_send_ping_req() {
+        let failure_detector = create_failure_detector();
+        failure_detector.membership_list.add_member("NODE_C");
+
+        failure_detector.send_ping_req("NODE_B").await.unwrap();
+
+        let result = failure_detector
+            .membership_list
+            .member_state("NODE_B")
+            .unwrap();
+        let expected = NodeState::Suspected;
+        assert_eq!(result, expected);
+
+        let result = failure_detector.state().await;
+        let expected = FailureDetectorState::WaitingForAck {
+            target: "NODE_B".to_string(),
+            ack_type: AckType::PingReqAck,
+        };
+        assert_eq!(result, expected);
+
+        let result = &failure_detector.socket.transmitted().await[0];
+        let expected = SwimMessage {
+            action: Some(Action::PingReq(PingReq {
+                from: "NODE_A".to_string(),
+                suspect: "NODE_B".to_string(),
+            })),
+        };
+        assert_eq!(result, &expected);
     }
 
     #[tokio::test]
