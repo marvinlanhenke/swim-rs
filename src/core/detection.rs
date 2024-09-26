@@ -11,13 +11,13 @@ use crate::pb::NodeState;
 use super::member::MembershipList;
 use super::transport::TransportLayer;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AckType {
     PingAck,
     PingReqAck,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FailureDetectorState {
     SendingPing,
     SendingPingReq { target: String },
@@ -165,4 +165,67 @@ impl<T: TransportLayer> FailureDetector<T> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use crate::{
+        api::config::SwimConfig,
+        core::{
+            detection::{AckType, FailureDetectorState},
+            member::MembershipList,
+        },
+        pb::{
+            swim_message::{Action, Ping},
+            NodeState, SwimMessage,
+        },
+        test_utils::mocks::MockUdpSocket,
+    };
+
+    use super::FailureDetector;
+
+    fn create_failure_detector() -> FailureDetector<MockUdpSocket> {
+        let socket = Arc::new(MockUdpSocket::new());
+        let config = Arc::new(
+            SwimConfig::builder()
+                .with_ping_interval(Duration::from_millis(0))
+                .with_ping_timeout(Duration::from_millis(0))
+                .with_ping_req_timeout(Duration::from_millis(0))
+                .build(),
+        );
+        let membership_list = Arc::new(MembershipList::new("NODE_A"));
+        membership_list.add_member("NODE_B");
+
+        FailureDetector::new("NODE_A", socket, config, membership_list)
+    }
+
+    #[tokio::test]
+    async fn test_detection_send_ping() {
+        let failure_detector = create_failure_detector();
+
+        failure_detector.send_ping().await.unwrap();
+
+        let result = failure_detector
+            .membership_list
+            .member_state("NODE_B")
+            .unwrap();
+        let expected = NodeState::Pending;
+        assert_eq!(result, expected);
+
+        let result = failure_detector.state().await;
+        let expected = FailureDetectorState::WaitingForAck {
+            target: "NODE_B".to_string(),
+            ack_type: AckType::PingAck,
+        };
+        assert_eq!(result, expected);
+
+        let result = &failure_detector.socket.transmitted().await[0];
+        let expected = SwimMessage {
+            action: Some(Action::Ping(Ping {
+                from: "NODE_A".to_string(),
+                requested_by: "".to_string(),
+                gossip: None,
+            })),
+        };
+        assert_eq!(result, &expected);
+    }
+}
