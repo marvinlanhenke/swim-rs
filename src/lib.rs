@@ -4,6 +4,7 @@ use tracing_subscriber::EnvFilter;
 pub mod api;
 
 mod core;
+pub use core::{member::MembershipList, node::SwimNode};
 
 mod error;
 pub use error::Result;

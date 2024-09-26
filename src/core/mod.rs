@@ -1,6 +1,6 @@
 mod detection;
-mod member;
+pub mod member;
 mod message;
-pub(crate) mod node;
-pub(crate) mod transport;
+pub mod node;
+pub mod transport;
 mod utils;

@@ -14,13 +14,13 @@ use super::{
 macro_rules! await_and_log_error {
     ($expr:expr, $name:expr) => {{
         if let Err(e) = $expr.await {
-            tracing::error!("$name: {}", e.to_string());
+            tracing::error!("{}: {}", $name, e.to_string());
         }
     }};
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SwimNode<T: TransportLayer> {
+pub struct SwimNode<T: TransportLayer> {
     addr: String,
     config: Arc<SwimConfig>,
     failure_detector: Arc<FailureDetector<T>>,
@@ -29,11 +29,22 @@ pub(crate) struct SwimNode<T: TransportLayer> {
 }
 
 impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
-    pub(crate) fn try_new(socket: T, config: SwimConfig) -> Result<Self> {
+    pub fn try_new(socket: T, config: SwimConfig) -> Result<Self> {
+        let addr = socket.local_addr()?;
+        let membership_list = MembershipList::new(&addr);
+
+        Self::try_new_with_membership_list(socket, config, membership_list)
+    }
+
+    pub fn try_new_with_membership_list(
+        socket: T,
+        config: SwimConfig,
+        membership_list: MembershipList,
+    ) -> Result<Self> {
         let addr = socket.local_addr()?;
         let config = Arc::new(config);
         let socket = Arc::new(socket);
-        let membership_list = Arc::new(MembershipList::new(&addr));
+        let membership_list = Arc::new(membership_list);
 
         let failure_detector = Arc::new(FailureDetector::new(
             &addr,
@@ -47,22 +58,6 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
             membership_list.clone(),
         ));
 
-        Self::try_new_impl(
-            addr,
-            config,
-            failure_detector,
-            message_handler,
-            membership_list,
-        )
-    }
-
-    pub(crate) fn try_new_impl(
-        addr: String,
-        config: Arc<SwimConfig>,
-        failure_detector: Arc<FailureDetector<T>>,
-        message_handler: Arc<MessageHandler<T>>,
-        membership_list: Arc<MembershipList>,
-    ) -> Result<Self> {
         Ok(Self {
             addr,
             config,
@@ -72,15 +67,19 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         })
     }
 
-    pub(crate) fn addr(&self) -> &str {
+    pub fn addr(&self) -> &str {
         &self.addr
     }
 
-    pub(crate) fn config(&self) -> &SwimConfig {
+    pub fn config(&self) -> &SwimConfig {
         &self.config
     }
 
-    pub(crate) async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
+    pub fn membership_list(&self) -> &MembershipList {
+        &self.membership_list
+    }
+
+    pub async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
         init_tracing();
 
         self.dispatch_join_request().await;
@@ -101,24 +100,24 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
                 let state = failure_detector.state().await;
                 match state {
                     FailureDetectorState::SendingPing => {
-                        await_and_log_error!(failure_detector.send_ping(), "FailureDetectionError");
+                        await_and_log_error!(failure_detector.send_ping(), "SendPingError");
                     }
                     FailureDetectorState::SendingPingReq { target } => {
                         await_and_log_error!(
                             failure_detector.send_ping_req(&target),
-                            "FailureDetectionError"
+                            "SendPingReqError"
                         );
                     }
                     FailureDetectorState::WaitingForAck { target, ack_type } => {
                         await_and_log_error!(
                             failure_detector.wait_for_ack(&target, &ack_type),
-                            "FailureDetectionError"
+                            "WaitingForAckError"
                         );
                     }
                     FailureDetectorState::DeclaringNodeAsDead { target } => {
                         await_and_log_error!(
                             failure_detector.declare_node_as_dead(&target),
-                            "FailureDetectionError"
+                            "DeclareNodeAsDeadError"
                         );
                     }
                 }
