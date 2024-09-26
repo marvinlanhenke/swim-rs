@@ -163,7 +163,7 @@ mod tests {
     use crate::{
         core::{member::MembershipList, message::MessageHandler},
         pb::{
-            swim_message::{Ack, Action, Ping, PingReq},
+            swim_message::{Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
             NodeState, SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
@@ -176,6 +176,32 @@ mod tests {
         membership_list.add_member("NODE_B");
 
         MessageHandler::new("NODE_A", socket, membership_list)
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_join_request() {
+        let message_handler = create_message_handler();
+
+        let action = JoinRequest {
+            from: "NODE_C".to_string(),
+        };
+
+        message_handler.handle_join_request(&action).await.unwrap();
+
+        assert!(message_handler
+            .membership_list
+            .members()
+            .contains_key("NODE_C"));
+
+        let result = &message_handler.socket.transmitted().await[0];
+
+        let expected = SwimMessage {
+            action: Some(Action::JoinResponse(JoinResponse {
+                members: message_handler.membership_list.members_hashmap(),
+            })),
+        };
+
+        assert_eq!(result, &expected);
     }
 
     #[tokio::test]
