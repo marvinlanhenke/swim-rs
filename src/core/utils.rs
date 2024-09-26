@@ -1,10 +1,10 @@
-use tokio::net::UdpSocket;
-
 use crate::error::Result;
 use crate::pb::swim_message::Action;
 
-pub async fn send_action(
-    socket: &UdpSocket,
+use super::transport::TransportLayer;
+
+pub async fn send_action<T: TransportLayer>(
+    socket: &T,
     action: &Action,
     target: impl AsRef<str>,
 ) -> Result<()> {

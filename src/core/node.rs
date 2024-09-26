@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::{net::UdpSocket, task::JoinHandle};
+use tokio::task::JoinHandle;
 
 use crate::{config::SwimConfig, error::Result, init_tracing};
 
@@ -8,6 +8,7 @@ use super::{
     detection::{FailureDetector, FailureDetectorState},
     member::MembershipList,
     message::MessageHandler,
+    transport::TransportLayer,
 };
 
 macro_rules! await_and_log_error {
@@ -19,17 +20,17 @@ macro_rules! await_and_log_error {
 }
 
 #[derive(Clone, Debug)]
-pub struct SwimNode {
+pub struct SwimNode<T: TransportLayer> {
     addr: String,
     config: Arc<SwimConfig>,
-    failure_detector: Arc<FailureDetector>,
-    message_handler: Arc<MessageHandler>,
+    failure_detector: Arc<FailureDetector<T>>,
+    message_handler: Arc<MessageHandler<T>>,
     membership_list: Arc<MembershipList>,
 }
 
-impl SwimNode {
-    pub fn try_new(socket: UdpSocket, config: SwimConfig) -> Result<Self> {
-        let addr = socket.local_addr()?.to_string();
+impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
+    pub fn try_new(socket: T, config: SwimConfig) -> Result<Self> {
+        let addr = socket.local_addr()?;
         let config = Arc::new(config);
         let socket = Arc::new(socket);
         let membership_list = Arc::new(MembershipList::new(&addr));
@@ -58,8 +59,8 @@ impl SwimNode {
     pub(crate) fn try_new_impl(
         addr: String,
         config: Arc<SwimConfig>,
-        failure_detector: Arc<FailureDetector>,
-        message_handler: Arc<MessageHandler>,
+        failure_detector: Arc<FailureDetector<T>>,
+        message_handler: Arc<MessageHandler<T>>,
         membership_list: Arc<MembershipList>,
     ) -> Result<Self> {
         Ok(Self {

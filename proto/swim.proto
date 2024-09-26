@@ -9,7 +9,6 @@ enum NodeState {
   Deceased = 3;
 }
 
-// JoinRequest + Response as separate message
 message Gossip {
   message NodeSuspected {
     string from = 1;
@@ -34,7 +33,6 @@ message Gossip {
     NodeRecovered node_recovered = 2;
     NodeDeceased node_deceased = 3;
   }
-
 }
 
 message SwimMessage {

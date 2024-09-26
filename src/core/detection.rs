@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::{net::UdpSocket, sync::RwLock};
+use tokio::sync::RwLock;
 
 use crate::config::SwimConfig;
 use crate::core::utils::send_action;
@@ -9,6 +9,7 @@ use crate::pb::swim_message::{Action, Ping, PingReq};
 use crate::pb::NodeState;
 
 use super::member::MembershipList;
+use super::transport::TransportLayer;
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum AckType {
@@ -25,18 +26,18 @@ pub(crate) enum FailureDetectorState {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct FailureDetector {
+pub(crate) struct FailureDetector<T: TransportLayer> {
     addr: String,
-    socket: Arc<UdpSocket>,
+    socket: Arc<T>,
     state: Arc<RwLock<FailureDetectorState>>,
     config: Arc<SwimConfig>,
     membership_list: Arc<MembershipList>,
 }
 
-impl FailureDetector {
+impl<T: TransportLayer> FailureDetector<T> {
     pub(crate) fn new(
         addr: impl Into<String>,
-        socket: Arc<UdpSocket>,
+        socket: Arc<T>,
         config: Arc<SwimConfig>,
         membership_list: Arc<MembershipList>,
     ) -> Self {
@@ -68,7 +69,7 @@ impl FailureDetector {
 
         if let Some((target, _)) = self.membership_list.get_random_member_list(1, None).first() {
             tracing::debug!("[{}] sending PING to {}", &self.addr, &target);
-            send_action(&self.socket, &action, &target).await?;
+            send_action(&*self.socket, &action, &target).await?;
 
             self.membership_list
                 .update_member(target, NodeState::Pending);
@@ -100,7 +101,7 @@ impl FailureDetector {
             });
 
             tracing::debug!("[{}] sending PING_REQ to {}", &self.addr, &target);
-            send_action(&self.socket, &action, target).await?;
+            send_action(&*self.socket, &action, target).await?;
         }
 
         let mut state = self.state.write().await;
@@ -162,3 +163,6 @@ impl FailureDetector {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {}

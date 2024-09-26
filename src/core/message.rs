@@ -12,21 +12,20 @@ use crate::{
 
 use prost::Message;
 use snafu::location;
-use tokio::net::UdpSocket;
 
-use super::member::MembershipList;
+use super::{member::MembershipList, transport::TransportLayer};
 
 #[derive(Clone, Debug)]
-pub(crate) struct MessageHandler {
+pub(crate) struct MessageHandler<T: TransportLayer> {
     addr: String,
-    socket: Arc<UdpSocket>,
+    socket: Arc<T>,
     membership_list: Arc<MembershipList>,
 }
 
-impl MessageHandler {
+impl<T: TransportLayer> MessageHandler<T> {
     pub(crate) fn new(
         addr: impl Into<String>,
-        socket: Arc<UdpSocket>,
+        socket: Arc<T>,
         membership_list: Arc<MembershipList>,
     ) -> Self {
         let addr = addr.into();
@@ -80,7 +79,7 @@ impl MessageHandler {
             false => &action.requested_by,
         };
 
-        send_action(&self.socket, &message, target).await
+        send_action(&*self.socket, &message, target).await
     }
 
     pub(crate) async fn handle_ping_req(&self, action: &PingReq) -> Result<()> {
@@ -95,7 +94,7 @@ impl MessageHandler {
             gossip: None,
         });
 
-        send_action(&self.socket, &action, &target).await
+        send_action(&*self.socket, &action, &target).await
     }
 
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
@@ -107,7 +106,7 @@ impl MessageHandler {
                 .update_member(&action.from, NodeState::Alive),
             false => {
                 send_action(
-                    &self.socket,
+                    &*self.socket,
                     &Action::Ack(action.clone()),
                     &action.forward_to,
                 )
@@ -127,7 +126,7 @@ impl MessageHandler {
         let members = self.membership_list.members_hashmap();
         let action = Action::JoinResponse(JoinResponse { members });
 
-        send_action(&self.socket, &action, target).await
+        send_action(&*self.socket, &action, target).await
 
         // TODO: add new nodes to disseminator, to update all other nodes in the cluster as well
     }
@@ -151,7 +150,7 @@ impl MessageHandler {
         });
 
         tracing::debug!("[{}] sending JOIN_REQ to {}", &self.addr, target);
-        send_action(&self.socket, &action, target).await?;
+        send_action(&*self.socket, &action, target).await?;
 
         Ok(())
     }
