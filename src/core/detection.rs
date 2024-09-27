@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
 
 use crate::api::config::SwimConfig;
 use crate::core::utils::send_action;
 use crate::error::Result;
+use crate::pb::gossip::{Event, NodeDeceased, NodeSuspected};
 use crate::pb::swim_message::{Action, Ping, PingReq};
 use crate::pb::NodeState;
 
@@ -32,6 +34,7 @@ pub(crate) struct FailureDetector<T: TransportLayer> {
     state: Arc<RwLock<FailureDetectorState>>,
     config: Arc<SwimConfig>,
     membership_list: Arc<MembershipList>,
+    tx: Sender<Event>,
 }
 
 impl<T: TransportLayer> FailureDetector<T> {
@@ -40,6 +43,7 @@ impl<T: TransportLayer> FailureDetector<T> {
         socket: Arc<T>,
         config: Arc<SwimConfig>,
         membership_list: Arc<MembershipList>,
+        tx: Sender<Event>,
     ) -> Self {
         let addr = addr.into();
         let state = Arc::new(RwLock::new(FailureDetectorState::SendingPing));
@@ -50,6 +54,7 @@ impl<T: TransportLayer> FailureDetector<T> {
             state,
             config,
             membership_list,
+            tx,
         }
     }
 
@@ -89,6 +94,12 @@ impl<T: TransportLayer> FailureDetector<T> {
 
         self.membership_list
             .update_member(&suspect, NodeState::Suspected);
+
+        self.tx.send(Event::NodeSuspected(NodeSuspected {
+            from: self.addr.to_string(),
+            suspect: suspect.clone(),
+            suspect_incarnation_no: 0,
+        }))?;
 
         let probe_group = self
             .membership_list
@@ -156,20 +167,25 @@ impl<T: TransportLayer> FailureDetector<T> {
         }
     }
 
-    // TODO:
-    // wait for a final suspect_timeout in yet another tokio::spawn task (add to config)
-    // after timeout check if node is still marked as suspect, if yes -> remove from members
-    // and disseminate this update through the cluster as Gossip
     pub(crate) async fn declare_node_as_dead(&self, target: impl Into<String>) -> Result<()> {
         let addr = self.addr.clone();
         let target = target.into();
         let membership_list = self.membership_list.clone();
         let suspect_timeout = self.config.suspect_timeout();
+        let tx = self.tx.clone();
 
         tokio::spawn(async move {
             tokio::time::sleep(suspect_timeout).await;
             tracing::debug!("[{}] declaring NODE {} as deceased", &addr, &target);
             membership_list.members().remove(&target);
+
+            if let Err(e) = tx.send(Event::NodeDeceased(NodeDeceased {
+                from: addr.clone(),
+                deceased: target.clone(),
+                deceased_incarnation_no: 0,
+            })) {
+                tracing::error!("SendEventError: {}", e.to_string());
+            };
         });
 
         let mut state = self.state.write().await;
@@ -182,6 +198,8 @@ impl<T: TransportLayer> FailureDetector<T> {
 #[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};
+
+    use tokio::sync::broadcast;
 
     use crate::{
         api::config::SwimConfig,
@@ -210,7 +228,9 @@ mod tests {
         let membership_list = Arc::new(MembershipList::new("NODE_A"));
         membership_list.add_member("NODE_B");
 
-        FailureDetector::new("NODE_A", socket, config, membership_list)
+        let (tx, _) = broadcast::channel(32);
+
+        FailureDetector::new("NODE_A", socket, config, membership_list, tx)
     }
 
     #[tokio::test]

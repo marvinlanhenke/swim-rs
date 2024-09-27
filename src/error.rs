@@ -1,5 +1,7 @@
 use snafu::Snafu;
 
+use crate::pb::gossip::Event;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Snafu)]
@@ -39,6 +41,11 @@ pub enum Error {
         message: String,
         location: snafu::Location,
     },
+    #[snafu(display("SendEventError: {message}, {location}"))]
+    SendEvent {
+        message: String,
+        location: snafu::Location,
+    },
 }
 
 trait SnafuLocationExt {
@@ -69,3 +76,4 @@ make_error_from!(prost::UnknownEnumValue, ProstUnknownEnumValue);
 make_error_from!(prost::DecodeError, ProstDecode);
 make_error_from!(prost::EncodeError, ProstEncode);
 make_error_from!(std::net::AddrParseError, AddrParse);
+make_error_from!(tokio::sync::broadcast::error::SendError<Event>, SendEvent);

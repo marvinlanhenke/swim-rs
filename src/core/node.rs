@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
-use tokio::task::JoinHandle;
+use tokio::{
+    sync::broadcast::{Receiver, Sender},
+    task::JoinHandle,
+};
 
-use crate::{api::config::SwimConfig, error::Result, init_tracing};
+use crate::{api::config::SwimConfig, error::Result, init_tracing, pb::gossip::Event};
 
 use super::{
     detection::{FailureDetector, FailureDetectorState},
@@ -26,20 +29,22 @@ pub struct SwimNode<T: TransportLayer> {
     failure_detector: Arc<FailureDetector<T>>,
     message_handler: Arc<MessageHandler<T>>,
     membership_list: Arc<MembershipList>,
+    tx: Sender<Event>,
 }
 
 impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
-    pub fn try_new(socket: T, config: SwimConfig) -> Result<Self> {
+    pub fn try_new(socket: T, config: SwimConfig, tx: Sender<Event>) -> Result<Self> {
         let addr = socket.local_addr()?;
         let membership_list = MembershipList::new(&addr);
 
-        Self::try_new_with_membership_list(socket, config, membership_list)
+        Self::try_new_with_membership_list(socket, config, membership_list, tx)
     }
 
     pub fn try_new_with_membership_list(
         socket: T,
         config: SwimConfig,
         membership_list: MembershipList,
+        tx: Sender<Event>,
     ) -> Result<Self> {
         let addr = socket.local_addr()?;
         let config = Arc::new(config);
@@ -51,6 +56,7 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
             socket.clone(),
             config.clone(),
             membership_list.clone(),
+            tx.clone(),
         ));
         let message_handler = Arc::new(MessageHandler::new(
             &addr,
@@ -64,6 +70,7 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
             failure_detector,
             message_handler,
             membership_list,
+            tx,
         })
     }
 
@@ -77,6 +84,10 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
 
     pub fn membership_list(&self) -> &MembershipList {
         &self.membership_list
+    }
+
+    pub fn subscribe(&self) -> Receiver<Event> {
+        self.tx.subscribe()
     }
 
     pub async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {

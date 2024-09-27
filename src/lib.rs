@@ -14,7 +14,7 @@ pub use error::Result;
 #[doc(hidden)]
 mod test_utils;
 
-mod pb {
+pub mod pb {
     include!(concat!(env!("OUT_DIR"), "/swim.rs"));
 }
 

@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use tokio::net::UdpSocket;
+use tokio::sync::broadcast::{self, Receiver};
 
 use crate::core::node::SwimNode;
 use crate::error::Result;
 use crate::init_tracing;
+use crate::pb::gossip::Event;
 
 use super::config::SwimConfig;
 
@@ -16,7 +18,8 @@ pub struct SwimCluster {
 impl SwimCluster {
     pub async fn try_new(addr: impl AsRef<str>, config: SwimConfig) -> Result<Self> {
         let socket = UdpSocket::bind(addr.as_ref()).await?;
-        let node = Arc::new(SwimNode::try_new(socket, config)?);
+        let (tx, _) = broadcast::channel::<Event>(32);
+        let node = Arc::new(SwimNode::try_new(socket, config, tx)?);
 
         Ok(Self { node })
     }
@@ -27,6 +30,10 @@ impl SwimCluster {
 
     pub fn config(&self) -> &SwimConfig {
         self.node.config()
+    }
+
+    pub fn subscribe(&self) -> Receiver<Event> {
+        self.node.subscribe()
     }
 
     pub async fn run(&self) {
