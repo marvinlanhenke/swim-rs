@@ -3,9 +3,8 @@ use std::{
     sync::Arc,
 };
 
-use itertools::{EitherOrBoth, Itertools};
 use prost::Message;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use crate::{pb::Gossip, Event};
 
@@ -95,7 +94,7 @@ impl Disseminator {
         }
     }
 
-    pub(crate) async fn pop(&self) -> Vec<Gossip> {
+    pub(crate) async fn get_gossip(&self) -> Vec<Gossip> {
         let mut gossip = Vec::new();
 
         let mut nodes_alive = self.nodes_alive.write().await;
@@ -106,24 +105,73 @@ impl Disseminator {
         let mut nodes_deceased_selected = 0;
 
         loop {
-            // when to break:
-            // -> current_size + new_entries >= max_size
-            // -> we processed all entries from both buffers
-            // -> or all buffers are empty
+            if (nodes_alive.is_empty() && nodes_deceased.is_empty())
+                || (nodes_alive_selected >= nodes_alive.len()
+                    && nodes_deceased_selected >= nodes_deceased.len())
+            {
+                break;
+            }
 
-            // peek_mut from buffer a, if is not empty and we have not processed
-            // all messages already for this iteration
-            // -> check if size fits?
-            // -> increase num_send += 1
-            // -> push gossip
-            // -> if num_send >= max_send => PeekMut::pop(entry)
+            let made_progress_alive = Self::process_heap_entry(
+                &mut nodes_alive,
+                &mut gossip,
+                &mut nodes_alive_selected,
+                &mut current_size,
+                self.max_size,
+                self.max_send,
+            );
 
-            // peek_mut from buffer a, if is not empty and we have not processed
-            // all messages already for this iteration
-            break;
+            let made_progress_deceased = Self::process_heap_entry(
+                &mut nodes_deceased,
+                &mut gossip,
+                &mut nodes_deceased_selected,
+                &mut current_size,
+                self.max_size,
+                self.max_send,
+            );
+
+            if !made_progress_alive && !made_progress_deceased {
+                break;
+            }
         }
 
         gossip
+    }
+
+    fn process_heap_entry(
+        heap: &mut RwLockWriteGuard<BinaryHeap<GossipHeapEntry>>,
+        gossip: &mut Vec<Gossip>,
+        num_selected: &mut usize,
+        current_size: &mut usize,
+        max_size: usize,
+        max_send: usize,
+    ) -> bool {
+        if *num_selected >= heap.len() {
+            return false;
+        }
+
+        match heap.peek_mut() {
+            Some(mut entry) => {
+                if *current_size + entry.size > max_size {
+                    return false;
+                }
+
+                gossip.push(entry.gossip.clone());
+
+                entry.num_send += 1;
+                *current_size += entry.size;
+                *num_selected += 1;
+
+                if entry.num_send >= max_send {
+                    PeekMut::pop(entry);
+                } else {
+                    drop(entry);
+                }
+
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -140,8 +188,8 @@ mod tests {
     use super::{Disseminator, DisseminatorUpdate};
 
     #[tokio::test]
-    async fn test_disseminator_pop() {
-        let disseminator = Disseminator::new(1, 128);
+    async fn test_disseminator_pop_both_no_space_left() {
+        let disseminator = Disseminator::new(1, 32);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -150,26 +198,160 @@ mod tests {
             from: "NODE_C".to_string(),
             new_member: "NODE_D".to_string(),
         });
+        let event3 = Event::NodeDeceased(NodeDeceased {
+            from: "NODE_A".to_string(),
+            deceased: "NODE_B".to_string(),
+            deceased_incarnation_no: 0,
+        });
+        let event4 = Event::NodeDeceased(NodeDeceased {
+            from: "NODE_C".to_string(),
+            deceased: "NODE_D".to_string(),
+            deceased_incarnation_no: 0,
+        });
         let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
         let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
+        let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
+        let update4 = DisseminatorUpdate::NodesDeceased(event4.clone());
+        disseminator.push(update1).await;
+        disseminator.push(update2).await;
+        disseminator.push(update3).await;
+        disseminator.push(update4).await;
+
+        let result = disseminator.get_gossip().await;
+
+        assert_eq!(
+            result,
+            vec![Gossip {
+                event: Some(event1)
+            },],
+        );
+        assert_eq!(disseminator.nodes_alive_size().await, 1);
+        assert_eq!(disseminator.nodes_deceased_size().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_disseminator_pop_both_same_len() {
+        let disseminator = Disseminator::new(6, 128);
+        let event1 = Event::NodeJoined(NodeJoined {
+            from: "NODE_A".to_string(),
+            new_member: "NODE_B".to_string(),
+        });
+        let event2 = Event::NodeJoined(NodeJoined {
+            from: "NODE_C".to_string(),
+            new_member: "NODE_D".to_string(),
+        });
+        let event3 = Event::NodeDeceased(NodeDeceased {
+            from: "NODE_A".to_string(),
+            deceased: "NODE_B".to_string(),
+            deceased_incarnation_no: 0,
+        });
+        let event4 = Event::NodeDeceased(NodeDeceased {
+            from: "NODE_C".to_string(),
+            deceased: "NODE_D".to_string(),
+            deceased_incarnation_no: 0,
+        });
+        let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
+        let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
+        let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
+        let update4 = DisseminatorUpdate::NodesDeceased(event4.clone());
+        disseminator.push(update1).await;
+        disseminator.push(update2).await;
+        disseminator.push(update3).await;
+        disseminator.push(update4).await;
+
+        let result = disseminator.get_gossip().await;
+
+        assert_eq!(
+            result,
+            vec![
+                Gossip {
+                    event: Some(event1)
+                },
+                Gossip {
+                    event: Some(event3)
+                },
+                Gossip {
+                    event: Some(event2)
+                },
+                Gossip {
+                    event: Some(event4)
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_disseminator_pop_both_different_len() {
+        let disseminator = Disseminator::new(6, 128);
+        let event1 = Event::NodeJoined(NodeJoined {
+            from: "NODE_A".to_string(),
+            new_member: "NODE_B".to_string(),
+        });
+        let event2 = Event::NodeJoined(NodeJoined {
+            from: "NODE_C".to_string(),
+            new_member: "NODE_D".to_string(),
+        });
+        let event3 = Event::NodeDeceased(NodeDeceased {
+            from: "NODE_A".to_string(),
+            deceased: "NODE_B".to_string(),
+            deceased_incarnation_no: 0,
+        });
+        let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
+        let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
+        let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
+        disseminator.push(update1).await;
+        disseminator.push(update2).await;
+        disseminator.push(update3).await;
+
+        let result = disseminator.get_gossip().await;
+
+        assert_eq!(
+            result,
+            vec![
+                Gossip {
+                    event: Some(event1)
+                },
+                Gossip {
+                    event: Some(event3)
+                },
+                Gossip {
+                    event: Some(event2)
+                }
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_disseminator_pop_both() {
+        let disseminator = Disseminator::new(1, 128);
+        let event1 = Event::NodeJoined(NodeJoined {
+            from: "NODE_A".to_string(),
+            new_member: "NODE_B".to_string(),
+        });
+        let event2 = Event::NodeDeceased(NodeDeceased {
+            from: "NODE_A".to_string(),
+            deceased: "NODE_B".to_string(),
+            deceased_incarnation_no: 0,
+        });
+        let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
+        let update2 = DisseminatorUpdate::NodesDeceased(event2.clone());
         disseminator.push(update1).await;
         disseminator.push(update2).await;
 
-        let result1 = disseminator.pop().await;
-        let result2 = disseminator.pop().await;
+        let result = disseminator.get_gossip().await;
 
         assert_eq!(disseminator.nodes_alive_size().await, 0);
+        assert_eq!(disseminator.nodes_deceased_size().await, 0);
         assert_eq!(
-            result1,
-            vec![Gossip {
-                event: Some(event1)
-            }]
-        );
-        assert_eq!(
-            result2,
-            vec![Gossip {
-                event: Some(event2)
-            }]
+            result,
+            vec![
+                Gossip {
+                    event: Some(event1)
+                },
+                Gossip {
+                    event: Some(event2)
+                }
+            ]
         );
     }
 
