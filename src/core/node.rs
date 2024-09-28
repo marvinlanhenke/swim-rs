@@ -5,10 +5,15 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{api::config::SwimConfig, error::Result, pb::gossip::Event};
+use crate::{
+    api::config::{SwimConfig, DEFAULT_BUFFER_SIZE},
+    error::Result,
+    pb::gossip::Event,
+};
 
 use super::{
     detection::{FailureDetector, FailureDetectorState},
+    disseminate::Disseminator,
     member::MembershipList,
     message::MessageHandler,
     transport::TransportLayer,
@@ -51,17 +56,23 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         let socket = Arc::new(socket);
         let membership_list = Arc::new(membership_list);
 
+        let disseminator = Arc::new(Disseminator::new(
+            DEFAULT_BUFFER_SIZE,
+            config.gossip_send_offset(),
+        ));
         let failure_detector = Arc::new(FailureDetector::new(
             &addr,
             socket.clone(),
             config.clone(),
             membership_list.clone(),
+            disseminator.clone(),
             tx.clone(),
         ));
         let message_handler = Arc::new(MessageHandler::new(
             &addr,
             socket.clone(),
             membership_list.clone(),
+            disseminator.clone(),
             tx.clone(),
         ));
 

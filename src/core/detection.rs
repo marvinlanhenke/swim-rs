@@ -11,6 +11,7 @@ use crate::pb::swim_message::{Action, Ping, PingReq};
 use crate::pb::NodeState;
 use crate::Event;
 
+use super::disseminate::{Disseminator, DisseminatorUpdate};
 use super::member::MembershipList;
 use super::transport::TransportLayer;
 
@@ -35,6 +36,7 @@ pub(crate) struct FailureDetector<T: TransportLayer> {
     state: Arc<RwLock<FailureDetectorState>>,
     config: Arc<SwimConfig>,
     membership_list: Arc<MembershipList>,
+    disseminator: Arc<Disseminator>,
     tx: Sender<Event>,
 }
 
@@ -44,6 +46,7 @@ impl<T: TransportLayer> FailureDetector<T> {
         socket: Arc<T>,
         config: Arc<SwimConfig>,
         membership_list: Arc<MembershipList>,
+        disseminator: Arc<Disseminator>,
         tx: Sender<Event>,
     ) -> Self {
         let addr = addr.into();
@@ -55,6 +58,7 @@ impl<T: TransportLayer> FailureDetector<T> {
             state,
             config,
             membership_list,
+            disseminator,
             tx,
         }
     }
@@ -96,11 +100,17 @@ impl<T: TransportLayer> FailureDetector<T> {
         self.membership_list
             .update_member(&suspect, NodeState::Suspected);
 
-        if let Err(e) = self.tx.send(Event::NodeSuspected(NodeSuspected {
+        let event = Event::NodeSuspected(NodeSuspected {
             from: self.addr.to_string(),
             suspect: suspect.clone(),
             suspect_incarnation_no: 0,
-        })) {
+        });
+
+        self.disseminator
+            .push(DisseminatorUpdate::NodesAlive(event.clone()))
+            .await;
+
+        if let Err(e) = self.tx.send(event) {
             tracing::error!("SendEventError: {}", e.to_string());
         }
 
@@ -175,6 +185,7 @@ impl<T: TransportLayer> FailureDetector<T> {
         let target = target.into();
         let membership_list = self.membership_list.clone();
         let suspect_timeout = self.config.suspect_timeout();
+        let disseminator = self.disseminator.clone();
         let tx = self.tx.clone();
 
         tokio::spawn(async move {
@@ -182,11 +193,17 @@ impl<T: TransportLayer> FailureDetector<T> {
             tracing::debug!("[{}] declaring NODE {} as deceased", &addr, &target);
             membership_list.members().remove(&target);
 
-            if let Err(e) = tx.send(Event::NodeDeceased(NodeDeceased {
+            let event = Event::NodeDeceased(NodeDeceased {
                 from: addr.clone(),
                 deceased: target.clone(),
                 deceased_incarnation_no: 0,
-            })) {
+            });
+
+            disseminator
+                .push(DisseminatorUpdate::NodesDeceased(event.clone()))
+                .await;
+
+            if let Err(e) = tx.send(event) {
                 tracing::error!("SendEventError: {}", e.to_string());
             };
         });
@@ -205,9 +222,10 @@ mod tests {
     use tokio::sync::broadcast;
 
     use crate::{
-        api::config::SwimConfig,
+        api::config::{SwimConfig, DEFAULT_BUFFER_SIZE},
         core::{
             detection::{AckType, FailureDetectorState},
+            disseminate::Disseminator,
             member::MembershipList,
         },
         pb::{
@@ -232,8 +250,9 @@ mod tests {
         membership_list.add_member("NODE_B");
 
         let (tx, _) = broadcast::channel(32);
+        let disseminator = Arc::new(Disseminator::new(DEFAULT_BUFFER_SIZE, 1));
 
-        FailureDetector::new("NODE_A", socket, config, membership_list, tx)
+        FailureDetector::new("NODE_A", socket, config, membership_list, disseminator, tx)
     }
 
     #[tokio::test]

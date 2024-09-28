@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     api::config::DEFAULT_BUFFER_SIZE,
-    core::utils::send_action,
+    core::{disseminate::DisseminatorUpdate, utils::send_action},
     error::{Error, Result},
     pb::{
         gossip::{NodeJoined, NodeRecovered},
@@ -16,13 +16,14 @@ use prost::Message;
 use snafu::location;
 use tokio::sync::broadcast::Sender;
 
-use super::{member::MembershipList, transport::TransportLayer};
+use super::{disseminate::Disseminator, member::MembershipList, transport::TransportLayer};
 
 #[derive(Clone, Debug)]
 pub(crate) struct MessageHandler<T: TransportLayer> {
     addr: String,
     socket: Arc<T>,
     membership_list: Arc<MembershipList>,
+    disseminator: Arc<Disseminator>,
     tx: Sender<Event>,
 }
 
@@ -31,6 +32,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         addr: impl Into<String>,
         socket: Arc<T>,
         membership_list: Arc<MembershipList>,
+        disseminator: Arc<Disseminator>,
         tx: Sender<Event>,
     ) -> Self {
         let addr = addr.into();
@@ -39,6 +41,7 @@ impl<T: TransportLayer> MessageHandler<T> {
             addr,
             socket,
             membership_list,
+            disseminator,
             tx,
         }
     }
@@ -107,11 +110,16 @@ impl<T: TransportLayer> MessageHandler<T> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         if let Some(NodeState::Suspected) = self.membership_list.member_state(&action.from) {
-            if let Err(e) = self.tx.send(Event::NodeRecovered(NodeRecovered {
+            let event = Event::NodeRecovered(NodeRecovered {
                 from: self.addr.clone(),
                 recovered: action.from.clone(),
                 recovered_incarnation_no: 0,
-            })) {
+            });
+            self.disseminator
+                .push(DisseminatorUpdate::NodesAlive(event.clone()))
+                .await;
+
+            if let Err(e) = self.tx.send(event) {
                 tracing::error!("SendEventError: {}", e.to_string());
             }
         }
@@ -138,10 +146,16 @@ impl<T: TransportLayer> MessageHandler<T> {
         let target = &action.from;
         self.membership_list.add_member(target);
 
-        if let Err(e) = self.tx.send(Event::NodeJoined(NodeJoined {
+        let event = Event::NodeJoined(NodeJoined {
             from: self.addr.clone(),
             new_member: target.clone(),
-        })) {
+        });
+
+        self.disseminator
+            .push(DisseminatorUpdate::NodesAlive(event.clone()))
+            .await;
+
+        if let Err(e) = self.tx.send(event) {
             tracing::error!("SendEventError: {}", e.to_string());
         }
 
@@ -183,7 +197,8 @@ mod tests {
     use tokio::sync::broadcast;
 
     use crate::{
-        core::{member::MembershipList, message::MessageHandler},
+        api::config::DEFAULT_BUFFER_SIZE,
+        core::{disseminate::Disseminator, member::MembershipList, message::MessageHandler},
         pb::{
             swim_message::{Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
             NodeState, SwimMessage,
@@ -199,7 +214,9 @@ mod tests {
 
         let (tx, _) = broadcast::channel(32);
 
-        MessageHandler::new("NODE_A", socket, membership_list, tx)
+        let disseminator = Arc::new(Disseminator::new(DEFAULT_BUFFER_SIZE, 1));
+
+        MessageHandler::new("NODE_A", socket, membership_list, disseminator, tx)
     }
 
     #[tokio::test]
