@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use swim_rs::{
     api::{config::SwimConfig, swim::SwimCluster},
-    pb::gossip::Event,
+    Event,
 };
 
 macro_rules! assert_event {

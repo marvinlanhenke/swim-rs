@@ -3,10 +3,11 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::broadcast::{self, Receiver};
 
+use crate::core::member::MembershipList;
 use crate::core::node::SwimNode;
 use crate::error::Result;
+use crate::init_tracing;
 use crate::pb::gossip::Event;
-use crate::{init_tracing, MembershipList};
 
 use super::config::SwimConfig;
 

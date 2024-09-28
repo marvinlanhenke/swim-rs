@@ -4,7 +4,6 @@ use tracing_subscriber::EnvFilter;
 pub mod api;
 
 mod core;
-pub use core::{member::MembershipList, node::SwimNode};
 
 mod error;
 pub use error::Result;
@@ -14,9 +13,10 @@ pub use error::Result;
 #[doc(hidden)]
 mod test_utils;
 
-pub mod pb {
+mod pb {
     include!(concat!(env!("OUT_DIR"), "/swim.rs"));
 }
+pub use pb::gossip::Event;
 
 lazy_static! {
     static ref TRACING: () = {

@@ -23,7 +23,7 @@ macro_rules! await_and_log_error {
 }
 
 #[derive(Clone, Debug)]
-pub struct SwimNode<T: TransportLayer> {
+pub(crate) struct SwimNode<T: TransportLayer> {
     addr: String,
     config: Arc<SwimConfig>,
     failure_detector: Arc<FailureDetector<T>>,
@@ -33,14 +33,14 @@ pub struct SwimNode<T: TransportLayer> {
 }
 
 impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
-    pub fn try_new(socket: T, config: SwimConfig, tx: Sender<Event>) -> Result<Self> {
+    pub(crate) fn try_new(socket: T, config: SwimConfig, tx: Sender<Event>) -> Result<Self> {
         let addr = socket.local_addr()?;
         let membership_list = MembershipList::new(&addr);
 
         Self::try_new_with_membership_list(socket, config, membership_list, tx)
     }
 
-    pub fn try_new_with_membership_list(
+    pub(crate) fn try_new_with_membership_list(
         socket: T,
         config: SwimConfig,
         membership_list: MembershipList,
@@ -74,23 +74,23 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         })
     }
 
-    pub fn addr(&self) -> &str {
+    pub(crate) fn addr(&self) -> &str {
         &self.addr
     }
 
-    pub fn config(&self) -> &SwimConfig {
+    pub(crate) fn config(&self) -> &SwimConfig {
         &self.config
     }
 
-    pub fn membership_list(&self) -> &MembershipList {
+    pub(crate) fn membership_list(&self) -> &MembershipList {
         &self.membership_list
     }
 
-    pub fn subscribe(&self) -> Receiver<Event> {
+    pub(crate) fn subscribe(&self) -> Receiver<Event> {
         self.tx.subscribe()
     }
 
-    pub async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
+    pub(crate) async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
         init_tracing();
 
         self.dispatch_join_request().await;
