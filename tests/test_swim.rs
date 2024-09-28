@@ -34,6 +34,29 @@ fn create_config_with_duration(duration: Duration) -> SwimConfig {
 }
 
 #[tokio::test]
+async fn test_swim_node_joined_event() {
+    let config = create_config_with_duration(Duration::from_millis(10));
+    let node1 = SwimCluster::try_new("127.0.0.1:8080", config)
+        .await
+        .unwrap();
+    let node2 = SwimCluster::try_new(
+        "127.0.0.1:8081",
+        SwimConfig::builder()
+            .with_known_peers(&["127.0.0.1:8080"])
+            .build(),
+    )
+    .await
+    .unwrap();
+
+    node1.run().await;
+    node2.run().await;
+
+    let mut rx = node1.subscribe();
+
+    assert_event!(Event::NodeJoined(_), rx, 3000);
+}
+
+#[tokio::test]
 async fn test_swim_node_deceased_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
     let node = SwimCluster::try_new("127.0.0.1:8080", config)
