@@ -5,8 +5,8 @@ use tokio::sync::broadcast::{self, Receiver};
 
 use crate::core::node::SwimNode;
 use crate::error::Result;
-use crate::init_tracing;
 use crate::pb::gossip::Event;
+use crate::{init_tracing, MembershipList};
 
 use super::config::SwimConfig;
 
@@ -34,6 +34,10 @@ impl SwimCluster {
 
     pub fn subscribe(&self) -> Receiver<Event> {
         self.node.subscribe()
+    }
+
+    pub fn membership_list(&self) -> &MembershipList {
+        self.node.membership_list()
     }
 
     pub async fn run(&self) {

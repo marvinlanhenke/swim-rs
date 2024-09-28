@@ -1,7 +1,9 @@
 use std::time::Duration;
 
-use swim_rs::{api::config::SwimConfig, pb::gossip::Event, MembershipList, SwimNode};
-use tokio::{net::UdpSocket, sync::broadcast};
+use swim_rs::{
+    api::{config::SwimConfig, swim::SwimCluster},
+    pb::gossip::Event,
+};
 
 macro_rules! assert_event {
     ($event:pat, $rx:expr, $ms:expr) => {
@@ -22,29 +24,26 @@ macro_rules! assert_event {
     };
 }
 
-#[tokio::test]
-async fn test_swim_node_declare_node_as_dead() {
-    let addr = "127.0.0.1:8080";
-    let socket = UdpSocket::bind(addr).await.unwrap();
-    let duration = Duration::from_millis(10);
-    let config = SwimConfig::builder()
+fn create_config_with_duration(duration: Duration) -> SwimConfig {
+    SwimConfig::builder()
         .with_ping_interval(duration)
         .with_ping_timeout(duration)
         .with_ping_req_timeout(duration)
         .with_suspect_timeout(duration)
-        .build();
-    let membership_list = MembershipList::new(addr);
-    membership_list.add_member("127.0.0.1:8081");
+        .build()
+}
 
-    let (tx, _) = broadcast::channel::<Event>(32);
+#[tokio::test]
+async fn test_swim_node_declare_node_as_dead() {
+    let config = create_config_with_duration(Duration::from_millis(10));
+    let node = SwimCluster::try_new("127.0.0.1:8080", config)
+        .await
+        .unwrap();
+    node.membership_list().add_member("127.0.0.1:8081");
 
-    let node = SwimNode::try_new_with_membership_list(socket, config, membership_list, tx).unwrap();
-    let (dispatch_handle, detection_handle) = node.run().await;
+    node.run().await;
 
     let mut rx = node.subscribe();
 
     assert_event!(Event::NodeDeceased(_), rx, 3000);
-
-    dispatch_handle.abort();
-    detection_handle.abort();
 }
