@@ -20,6 +20,9 @@ const DEFAULT_SUSPECT_TIMEOUT: Duration = Duration::from_millis(6000);
 /// The buffer size for receiving new messages. Defaults to 1536 bytes.
 pub(crate) const DEFAULT_BUFFER_SIZE: usize = 1536;
 
+/// The constant added to how often a message will be gossiped. Defaults to 1.
+pub(crate) const DEFAULT_GOSSIP_SEND_OFFSET: usize = 1;
+
 /// Builder for creating a [`SwimConfig`] with customized settings for a SWIM protocol node.
 /// Allows configuring timeouts, intervals, and known peers in the network.
 #[derive(Clone, Debug)]
@@ -37,6 +40,8 @@ pub struct SwimConfigBuilder {
     ping_req_timeout: Duration,
     /// The duration to wait for until a suspected node is decleared as deceased.
     suspect_timeout: Duration,
+    /// The constant added to how often a message will be gossiped.
+    gossip_send_offset: usize,
 }
 
 impl SwimConfigBuilder {
@@ -54,6 +59,7 @@ impl SwimConfigBuilder {
             ping_req_group_size: self.ping_req_group_size,
             ping_req_timeout: self.ping_req_timeout,
             suspect_timeout: self.suspect_timeout,
+            gossip_send_offset: self.gossip_send_offset,
         }
     }
 
@@ -99,6 +105,12 @@ impl SwimConfigBuilder {
         self.suspect_timeout = suspect_timeout;
         self
     }
+
+    /// Sets the constant added to how often a message will be gossiped.
+    pub fn with_gossip_send_offset(mut self, gossip_send_offset: usize) -> Self {
+        self.gossip_send_offset = gossip_send_offset;
+        self
+    }
 }
 
 impl Default for SwimConfigBuilder {
@@ -110,6 +122,7 @@ impl Default for SwimConfigBuilder {
             ping_req_group_size: DEFAULT_PING_REQ_GROUP_SIZE,
             ping_req_timeout: DEFAULT_PING_REQ_TIMEOUT,
             suspect_timeout: DEFAULT_SUSPECT_TIMEOUT,
+            gossip_send_offset: DEFAULT_GOSSIP_SEND_OFFSET,
         }
     }
 }
@@ -131,6 +144,8 @@ pub struct SwimConfig {
     ping_req_timeout: Duration,
     /// The duration to wait for until a suspected node is decleared as deceased.
     suspect_timeout: Duration,
+    /// The constant added to how often a message will be gossiped.
+    gossip_send_offset: usize,
 }
 
 impl SwimConfig {
@@ -172,6 +187,11 @@ impl SwimConfig {
     pub fn suspect_timeout(&self) -> Duration {
         self.suspect_timeout
     }
+
+    /// Returns the constant added to how often a message will be gossiped.
+    pub fn gossip_send_offset(&self) -> usize {
+        self.gossip_send_offset
+    }
 }
 
 impl Default for SwimConfig {
@@ -185,8 +205,8 @@ mod tests {
     use std::time::Duration;
 
     use crate::api::config::{
-        DEFAULT_PING_REQ_GROUP_SIZE, DEFAULT_PING_REQ_TIMEOUT, DEFAULT_PING_TIMEOUT,
-        DEFAULT_SUSPECT_TIMEOUT,
+        DEFAULT_GOSSIP_SEND_OFFSET, DEFAULT_PING_REQ_GROUP_SIZE, DEFAULT_PING_REQ_TIMEOUT,
+        DEFAULT_PING_TIMEOUT, DEFAULT_SUSPECT_TIMEOUT,
     };
 
     use super::SwimConfig;
@@ -204,5 +224,6 @@ mod tests {
         assert_eq!(config.ping_req_group_size(), DEFAULT_PING_REQ_GROUP_SIZE);
         assert_eq!(config.ping_req_timeout(), DEFAULT_PING_REQ_TIMEOUT);
         assert_eq!(config.suspect_timeout(), DEFAULT_SUSPECT_TIMEOUT);
+        assert_eq!(config.gossip_send_offset(), DEFAULT_GOSSIP_SEND_OFFSET);
     }
 }
