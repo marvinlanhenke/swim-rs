@@ -36,13 +36,11 @@ fn create_config_with_duration(duration: Duration) -> SwimConfig {
 #[tokio::test]
 async fn test_swim_node_recovered_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
-    let node1 = SwimCluster::try_new("127.0.0.1:8080", config)
+    let node1 = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
+    let node2 = SwimCluster::try_new("127.0.0.1:0", SwimConfig::new())
         .await
         .unwrap();
-    node1.membership_list().add_member("127.0.0.1:8081");
-    let node2 = SwimCluster::try_new("127.0.0.1:8081", SwimConfig::new())
-        .await
-        .unwrap();
+    node1.membership_list().add_member(node2.addr());
 
     node1.run().await;
 
@@ -65,13 +63,11 @@ async fn test_swim_node_recovered_event() {
 #[tokio::test]
 async fn test_swim_node_joined_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
-    let node1 = SwimCluster::try_new("127.0.0.1:8080", config)
-        .await
-        .unwrap();
+    let node1 = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
     let node2 = SwimCluster::try_new(
-        "127.0.0.1:8081",
+        "127.0.0.1:0",
         SwimConfig::builder()
-            .with_known_peers(&["127.0.0.1:8080"])
+            .with_known_peers(&[node1.addr()])
             .build(),
     )
     .await
@@ -88,9 +84,7 @@ async fn test_swim_node_joined_event() {
 #[tokio::test]
 async fn test_swim_node_deceased_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
-    let node = SwimCluster::try_new("127.0.0.1:8080", config)
-        .await
-        .unwrap();
+    let node = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
     node.membership_list().add_member("127.0.0.1:8081");
 
     node.run().await;
@@ -103,9 +97,7 @@ async fn test_swim_node_deceased_event() {
 #[tokio::test]
 async fn test_swim_node_suspect_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
-    let node = SwimCluster::try_new("127.0.0.1:8080", config)
-        .await
-        .unwrap();
+    let node = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
     node.membership_list().add_member("127.0.0.1:8081");
 
     node.run().await;
