@@ -96,11 +96,13 @@ impl<T: TransportLayer> FailureDetector<T> {
         self.membership_list
             .update_member(&suspect, NodeState::Suspected);
 
-        self.tx.send(Event::NodeSuspected(NodeSuspected {
+        if let Err(e) = self.tx.send(Event::NodeSuspected(NodeSuspected {
             from: self.addr.to_string(),
             suspect: suspect.clone(),
             suspect_incarnation_no: 0,
-        }))?;
+        })) {
+            tracing::error!("SendEventError: {}", e.to_string());
+        }
 
         let probe_group = self
             .membership_list

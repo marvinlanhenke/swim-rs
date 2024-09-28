@@ -107,11 +107,13 @@ impl<T: TransportLayer> MessageHandler<T> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         if let Some(NodeState::Suspected) = self.membership_list.member_state(&action.from) {
-            self.tx.send(Event::NodeRecovered(NodeRecovered {
+            if let Err(e) = self.tx.send(Event::NodeRecovered(NodeRecovered {
                 from: self.addr.clone(),
                 recovered: action.from.clone(),
                 recovered_incarnation_no: 0,
-            }))?;
+            })) {
+                tracing::error!("SendEventError: {}", e.to_string());
+            }
         }
 
         match action.forward_to.is_empty() {
@@ -136,10 +138,12 @@ impl<T: TransportLayer> MessageHandler<T> {
         let target = &action.from;
         self.membership_list.add_member(target);
 
-        self.tx.send(Event::NodeJoined(NodeJoined {
+        if let Err(e) = self.tx.send(Event::NodeJoined(NodeJoined {
             from: self.addr.clone(),
             new_member: target.clone(),
-        }))?;
+        })) {
+            tracing::error!("SendEventError: {}", e.to_string());
+        }
 
         let members = self.membership_list.members_hashmap();
         let action = Action::JoinResponse(JoinResponse { members });
