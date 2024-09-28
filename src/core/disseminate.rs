@@ -57,17 +57,17 @@ pub(crate) enum DisseminatorUpdate {
 pub(crate) struct Disseminator {
     nodes_alive: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
     nodes_deceased: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
-    max_send: usize,
     max_size: usize,
+    max_send_offset: usize,
 }
 
 impl Disseminator {
-    pub(crate) fn new(max_send: usize, max_size: usize) -> Self {
+    pub(crate) fn new(max_size: usize, max_send_offset: usize) -> Self {
         Self {
             nodes_alive: Arc::new(RwLock::new(BinaryHeap::new())),
             nodes_deceased: Arc::new(RwLock::new(BinaryHeap::new())),
-            max_send,
             max_size,
+            max_send_offset,
         }
     }
 
@@ -94,7 +94,12 @@ impl Disseminator {
         }
     }
 
-    pub(crate) async fn get_gossip(&self) -> Vec<Gossip> {
+    pub(crate) async fn get_gossip(&self, num_members: usize) -> Vec<Gossip> {
+        let max_send = match num_members > 1 {
+            true => ((num_members as f64).log10() + self.max_send_offset as f64).ceil() as usize,
+            false => self.max_send_offset,
+        };
+
         let mut gossip = Vec::new();
 
         let mut nodes_alive = self.nodes_alive.write().await;
@@ -118,7 +123,7 @@ impl Disseminator {
                 &mut nodes_alive_selected,
                 &mut current_size,
                 self.max_size,
-                self.max_send,
+                max_send,
             );
 
             let made_progress_deceased = Self::process_heap_entry(
@@ -127,7 +132,7 @@ impl Disseminator {
                 &mut nodes_deceased_selected,
                 &mut current_size,
                 self.max_size,
-                self.max_send,
+                max_send,
             );
 
             if !made_progress_alive && !made_progress_deceased {
@@ -189,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_pop_both_no_space_left() {
-        let disseminator = Disseminator::new(1, 32);
+        let disseminator = Disseminator::new(32, 1);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -217,7 +222,7 @@ mod tests {
         disseminator.push(update3).await;
         disseminator.push(update4).await;
 
-        let result = disseminator.get_gossip().await;
+        let result = disseminator.get_gossip(0).await;
 
         assert_eq!(
             result,
@@ -231,7 +236,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_pop_both_same_len() {
-        let disseminator = Disseminator::new(6, 128);
+        let disseminator = Disseminator::new(128, 6);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -259,7 +264,7 @@ mod tests {
         disseminator.push(update3).await;
         disseminator.push(update4).await;
 
-        let result = disseminator.get_gossip().await;
+        let result = disseminator.get_gossip(0).await;
 
         assert_eq!(
             result,
@@ -282,7 +287,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_pop_both_different_len() {
-        let disseminator = Disseminator::new(6, 128);
+        let disseminator = Disseminator::new(128, 6);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -303,7 +308,7 @@ mod tests {
         disseminator.push(update2).await;
         disseminator.push(update3).await;
 
-        let result = disseminator.get_gossip().await;
+        let result = disseminator.get_gossip(0).await;
 
         assert_eq!(
             result,
@@ -323,7 +328,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_pop_both() {
-        let disseminator = Disseminator::new(1, 128);
+        let disseminator = Disseminator::new(128, 0);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -338,7 +343,7 @@ mod tests {
         disseminator.push(update1).await;
         disseminator.push(update2).await;
 
-        let result = disseminator.get_gossip().await;
+        let result = disseminator.get_gossip(0).await;
 
         assert_eq!(disseminator.nodes_alive_size().await, 0);
         assert_eq!(disseminator.nodes_deceased_size().await, 0);
@@ -357,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_push() {
-        let disseminator = Disseminator::new(5, 128);
+        let disseminator = Disseminator::new(128, 5);
         let event = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
