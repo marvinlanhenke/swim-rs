@@ -5,7 +5,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{api::config::SwimConfig, error::Result, init_tracing, pb::gossip::Event};
+use crate::{api::config::SwimConfig, error::Result, pb::gossip::Event};
 
 use super::{
     detection::{FailureDetector, FailureDetectorState},
@@ -92,8 +92,6 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
     }
 
     pub(crate) async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
-        init_tracing();
-
         self.dispatch_join_request().await;
         let dispatch_handle = self.dispatch().await;
         let detection_handle = self.failure_detection().await;
