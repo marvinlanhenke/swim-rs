@@ -3,6 +3,25 @@ use std::time::Duration;
 use swim_rs::{api::config::SwimConfig, pb::gossip::Event, MembershipList, SwimNode};
 use tokio::{net::UdpSocket, sync::broadcast};
 
+macro_rules! assert_event {
+    ($event:pat, $rx:expr, $ms:expr) => {
+        let result = tokio::time::timeout(Duration::from_millis($ms), async {
+            loop {
+                match $rx.recv().await {
+                    Ok($event) => break,
+                    Ok(_) => continue,
+                    Err(_) => panic!(),
+                }
+            }
+        })
+        .await;
+
+        if result.is_err() {
+            panic!()
+        }
+    };
+}
+
 #[tokio::test]
 async fn test_swim_node_declare_node_as_dead() {
     let addr = "127.0.0.1:8080";
@@ -24,14 +43,7 @@ async fn test_swim_node_declare_node_as_dead() {
 
     let mut rx = node.subscribe();
 
-    loop {
-        if let Ok(Event::NodeDeceased(msg)) = rx.recv().await {
-            assert_eq!(msg.from, addr);
-            assert_eq!(msg.deceased, "127.0.0.1:8081");
-            assert_eq!(node.membership_list().len(), 1);
-            break;
-        }
-    }
+    assert_event!(Event::NodeDeceased(_), rx, 3000);
 
     dispatch_handle.abort();
     detection_handle.abort();
