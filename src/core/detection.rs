@@ -6,9 +6,10 @@ use tokio::sync::RwLock;
 use crate::api::config::SwimConfig;
 use crate::core::utils::send_action;
 use crate::error::Result;
-use crate::pb::gossip::{Event, NodeDeceased, NodeSuspected};
+use crate::pb::gossip::{NodeDeceased, NodeSuspected};
 use crate::pb::swim_message::{Action, Ping, PingReq};
 use crate::pb::NodeState;
+use crate::Event;
 
 use super::member::MembershipList;
 use super::transport::TransportLayer;
