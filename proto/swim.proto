@@ -45,7 +45,7 @@ message SwimMessage {
   message Ping {
     string from = 1;
     string requested_by = 2;
-    Gossip gossip = 3;
+    repeated Gossip gossip = 3;
   }
 
   message PingReq {
@@ -56,7 +56,7 @@ message SwimMessage {
   message Ack {
     string from = 1;
     string forward_to = 2;
-    Gossip gossip = 3;
+    repeated Gossip gossip = 3;
   }
 
   message JoinRequest {
