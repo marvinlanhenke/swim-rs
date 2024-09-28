@@ -62,6 +62,7 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
             &addr,
             socket.clone(),
             membership_list.clone(),
+            tx.clone(),
         ));
 
         Ok(Self {

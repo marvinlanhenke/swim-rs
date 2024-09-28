@@ -5,13 +5,16 @@ use crate::{
     core::utils::send_action,
     error::{Error, Result},
     pb::{
+        gossip::{NodeJoined, NodeRecovered},
         swim_message::{self, Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
         Gossip, NodeState, SwimMessage,
     },
+    Event,
 };
 
 use prost::Message;
 use snafu::location;
+use tokio::sync::broadcast::Sender;
 
 use super::{member::MembershipList, transport::TransportLayer};
 
@@ -20,6 +23,7 @@ pub(crate) struct MessageHandler<T: TransportLayer> {
     addr: String,
     socket: Arc<T>,
     membership_list: Arc<MembershipList>,
+    tx: Sender<Event>,
 }
 
 impl<T: TransportLayer> MessageHandler<T> {
@@ -27,6 +31,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         addr: impl Into<String>,
         socket: Arc<T>,
         membership_list: Arc<MembershipList>,
+        tx: Sender<Event>,
     ) -> Self {
         let addr = addr.into();
 
@@ -34,6 +39,7 @@ impl<T: TransportLayer> MessageHandler<T> {
             addr,
             socket,
             membership_list,
+            tx,
         }
     }
 
@@ -100,6 +106,14 @@ impl<T: TransportLayer> MessageHandler<T> {
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
+        if let Some(NodeState::Suspected) = self.membership_list.member_state(&action.from) {
+            self.tx.send(Event::NodeRecovered(NodeRecovered {
+                from: self.addr.clone(),
+                recovered: action.from.clone(),
+                recovered_incarnation_no: 0,
+            }))?;
+        }
+
         match action.forward_to.is_empty() {
             true => self
                 .membership_list
@@ -122,12 +136,15 @@ impl<T: TransportLayer> MessageHandler<T> {
         let target = &action.from;
         self.membership_list.add_member(target);
 
+        self.tx.send(Event::NodeJoined(NodeJoined {
+            from: self.addr.clone(),
+            new_member: target.clone(),
+        }))?;
+
         let members = self.membership_list.members_hashmap();
         let action = Action::JoinResponse(JoinResponse { members });
 
         send_action(&*self.socket, &action, target).await
-
-        // TODO: add new nodes to disseminator, to update all other nodes in the cluster as well
     }
 
     pub(crate) async fn handle_join_response(&self, action: &JoinResponse) -> Result<()> {
@@ -159,6 +176,8 @@ impl<T: TransportLayer> MessageHandler<T> {
 mod tests {
     use std::sync::Arc;
 
+    use tokio::sync::broadcast;
+
     use crate::{
         core::{member::MembershipList, message::MessageHandler},
         pb::{
@@ -174,7 +193,9 @@ mod tests {
         let membership_list = Arc::new(MembershipList::new("NODE_A"));
         membership_list.add_member("NODE_B");
 
-        MessageHandler::new("NODE_A", socket, membership_list)
+        let (tx, _) = broadcast::channel(32);
+
+        MessageHandler::new("NODE_A", socket, membership_list, tx)
     }
 
     #[tokio::test]
