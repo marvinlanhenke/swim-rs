@@ -16,6 +16,3 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 [build-dependencies]
 prost-build = "0.13.3"
-
-[features]
-test-util = []

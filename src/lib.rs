@@ -1,6 +1,3 @@
-use lazy_static::lazy_static;
-use tracing_subscriber::EnvFilter;
-
 pub mod api;
 
 mod core;
@@ -8,7 +5,7 @@ mod core;
 mod error;
 pub use error::Result;
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[path = "./test-utils/mod.rs"]
 #[doc(hidden)]
 mod test_utils;
@@ -17,15 +14,3 @@ mod pb {
     include!(concat!(env!("OUT_DIR"), "/swim.rs"));
 }
 pub use pb::gossip::Event;
-
-lazy_static! {
-    static ref TRACING: () = {
-        tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .init();
-    };
-}
-
-fn init_tracing() {
-    lazy_static::initialize(&TRACING);
-}
