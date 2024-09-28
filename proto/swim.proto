@@ -34,9 +34,10 @@ message Gossip {
   }
 
   oneof event {
-    NodeSuspected node_suspected = 1;
-    NodeRecovered node_recovered = 2;
-    NodeDeceased node_deceased = 3;
+    NodeJoined node_joined = 1;
+    NodeSuspected node_suspected = 2;
+    NodeRecovered node_recovered = 3;
+    NodeDeceased node_deceased = 4;
   }
 }
 
