@@ -2,11 +2,18 @@ syntax = "proto3";
 
 package swim;
 
+
 enum NodeState {
   Alive = 0;
   Pending = 1;
   Suspected = 2;
   Deceased = 3;
+}
+
+message Member {
+  string addr = 1;
+  NodeState state = 2;
+  uint64 incarnation = 3;
 }
 
 message Gossip {
@@ -64,7 +71,7 @@ message SwimMessage {
   }
 
   message JoinResponse {
-    map<string, NodeState> members = 1;
+    map<string, Member> members = 1;
   }
 
   oneof action {
