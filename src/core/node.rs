@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU64, Arc};
 
 use tokio::{
     sync::broadcast::{Receiver, Sender},
@@ -34,6 +34,7 @@ pub(crate) struct SwimNode<T: TransportLayer> {
     failure_detector: Arc<FailureDetector<T>>,
     message_handler: Arc<MessageHandler<T>>,
     membership_list: Arc<MembershipList>,
+    incarnation: Arc<AtomicU64>,
     tx: Sender<Event>,
 }
 
@@ -55,6 +56,7 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         let config = Arc::new(config);
         let socket = Arc::new(socket);
         let membership_list = Arc::new(membership_list);
+        let incarnation = Arc::new(AtomicU64::new(0));
 
         let disseminator = Arc::new(Disseminator::new(
             DEFAULT_BUFFER_SIZE,
@@ -82,6 +84,7 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
             failure_detector,
             message_handler,
             membership_list,
+            incarnation,
             tx,
         })
     }
