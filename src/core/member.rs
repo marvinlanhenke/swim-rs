@@ -55,12 +55,19 @@ impl MembershipList {
 
     pub fn member_state(&self, addr: impl AsRef<str>) -> Option<Result<NodeState>> {
         let addr = addr.as_ref();
-        self.members.get(addr).map(|s| {
-            NodeState::try_from(s.value().state).map_err(|e| Error::ProstUnknownEnumValue {
+        self.members.get(addr).map(|entry| {
+            NodeState::try_from(entry.value().state).map_err(|e| Error::ProstUnknownEnumValue {
                 message: e.to_string(),
                 location: location!(),
             })
         })
+    }
+
+    pub fn member_incarnation(&self, addr: impl AsRef<str>) -> Option<u64> {
+        let addr = addr.as_ref();
+        self.members()
+            .get(addr)
+            .map(|entry| entry.value().incarnation)
     }
 
     pub fn add_member(&self, addr: impl Into<String>, incarnation: u64) {
