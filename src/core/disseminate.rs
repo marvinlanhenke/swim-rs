@@ -71,14 +71,6 @@ impl Disseminator {
         }
     }
 
-    pub(crate) async fn nodes_alive_size(&self) -> usize {
-        self.nodes_alive.read().await.len()
-    }
-
-    pub(crate) async fn nodes_deceased_size(&self) -> usize {
-        self.nodes_deceased.read().await.len()
-    }
-
     pub(crate) async fn push(&self, update: DisseminatorUpdate) {
         match update {
             DisseminatorUpdate::NodesAlive(event) => {
@@ -230,8 +222,8 @@ mod tests {
                 event: Some(event1)
             },],
         );
-        assert_eq!(disseminator.nodes_alive_size().await, 1);
-        assert_eq!(disseminator.nodes_deceased_size().await, 2);
+        assert_eq!(disseminator.nodes_alive.read().await.len(), 1);
+        assert_eq!(disseminator.nodes_deceased.read().await.len(), 2);
     }
 
     #[tokio::test]
@@ -345,8 +337,8 @@ mod tests {
 
         let result = disseminator.get_gossip(0).await;
 
-        assert_eq!(disseminator.nodes_alive_size().await, 0);
-        assert_eq!(disseminator.nodes_deceased_size().await, 0);
+        assert_eq!(disseminator.nodes_alive.read().await.len(), 0);
+        assert_eq!(disseminator.nodes_deceased.read().await.len(), 0);
         assert_eq!(
             result,
             vec![
@@ -378,7 +370,7 @@ mod tests {
         let update = DisseminatorUpdate::NodesDeceased(event);
         disseminator.push(update).await;
 
-        assert_eq!(disseminator.nodes_alive_size().await, 1);
-        assert_eq!(disseminator.nodes_deceased_size().await, 1);
+        assert_eq!(disseminator.nodes_alive.read().await.len(), 1);
+        assert_eq!(disseminator.nodes_deceased.read().await.len(), 1);
     }
 }
