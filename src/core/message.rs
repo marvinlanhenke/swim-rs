@@ -73,7 +73,10 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         let from = self.addr.clone();
         let forward_to = action.requested_by.clone();
-        let gossip = None;
+        let gossip = self
+            .disseminator
+            .get_gossip(self.membership_list.len())
+            .await;
 
         let message = Action::Ack(Ack {
             from,
@@ -96,11 +99,15 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         let requested_by = action.from.clone();
         let target = action.suspect.clone();
+        let gossip = self
+            .disseminator
+            .get_gossip(self.membership_list.len())
+            .await;
 
         let action = Action::Ping(Ping {
             from: self.addr.clone(),
             requested_by,
-            gossip: None,
+            gossip,
         });
 
         send_action(&*self.socket, &action, &target).await
@@ -284,11 +291,15 @@ mod tests {
     #[tokio::test]
     async fn test_message_handle_ack_with_forward() {
         let message_handler = create_message_handler();
+        let gossip = message_handler
+            .disseminator
+            .get_gossip(message_handler.membership_list.len())
+            .await;
 
         let action = Ack {
             from: "NODE_B".to_string(),
             forward_to: "NODE_C".to_string(),
-            gossip: None,
+            gossip: gossip.clone(),
         };
 
         message_handler.handle_ack(&action).await.unwrap();
@@ -299,7 +310,7 @@ mod tests {
             action: Some(Action::Ack(Ack {
                 from: "NODE_B".to_string(),
                 forward_to: "".to_string(),
-                gossip: None,
+                gossip,
             })),
         };
 
@@ -313,11 +324,15 @@ mod tests {
         message_handler
             .membership_list
             .update_member("NODE_B", NodeState::Pending);
+        let gossip = message_handler
+            .disseminator
+            .get_gossip(message_handler.membership_list.len())
+            .await;
 
         let action = Ack {
             from: "NODE_B".to_string(),
             forward_to: "".to_string(),
-            gossip: None,
+            gossip,
         };
 
         message_handler.handle_ack(&action).await.unwrap();
@@ -334,6 +349,10 @@ mod tests {
     #[tokio::test]
     async fn test_message_handle_ping_req() {
         let message_handler = create_message_handler();
+        let gossip = message_handler
+            .disseminator
+            .get_gossip(message_handler.membership_list.len())
+            .await;
 
         let action = PingReq {
             from: "NODE_B".to_string(),
@@ -348,7 +367,7 @@ mod tests {
             action: Some(Action::Ping(Ping {
                 from: "NODE_A".to_string(),
                 requested_by: "NODE_B".to_string(),
-                gossip: None,
+                gossip,
             })),
         };
 
@@ -358,11 +377,15 @@ mod tests {
     #[tokio::test]
     async fn test_message_handle_ping() {
         let message_handler = create_message_handler();
+        let gossip = message_handler
+            .disseminator
+            .get_gossip(message_handler.membership_list.len())
+            .await;
 
         let action = Ping {
             from: "NODE_B".to_string(),
             requested_by: "".to_string(),
-            gossip: None,
+            gossip: gossip.clone(),
         };
 
         message_handler.handle_ping(&action).await.unwrap();
@@ -373,7 +396,7 @@ mod tests {
             action: Some(Action::Ack(Ack {
                 from: "NODE_A".to_string(),
                 forward_to: "".to_string(),
-                gossip: None,
+                gossip,
             })),
         };
 
