@@ -116,37 +116,42 @@ impl<T: TransportLayer> MessageHandler<T> {
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
-        if let Some(member) = self.membership_list.members().get(&action.from) {
-            if NodeState::Suspected as i32 == member.state {
-                let event = Event::NodeRecovered(NodeRecovered {
-                    from: self.addr.clone(),
-                    recovered: action.from.clone(),
-                    recovered_incarnation_no: member.incarnation,
-                });
-                self.disseminator
-                    .push(DisseminatorUpdate::NodesAlive(event.clone()))
-                    .await;
-
-                if let Err(e) = self.tx.send(event) {
-                    tracing::error!("SendEventError: {}", e.to_string());
-                }
+        let member = match self.membership_list.members().get(&action.from) {
+            Some(member) => member.value().clone(),
+            None => {
+                return Ok(());
             }
+        };
 
-            match action.forward_to.is_empty() {
-                true => self.membership_list.update_member(Member {
-                    addr: action.from.clone(),
-                    state: NodeState::Alive as i32,
-                    incarnation: member.incarnation,
-                }),
-                false => {
-                    let target = &action.forward_to;
-                    let mut forwarded_ack = action.clone();
-                    forwarded_ack.forward_to = "".to_string();
+        if NodeState::Suspected as i32 == member.state {
+            let event = Event::NodeRecovered(NodeRecovered {
+                from: self.addr.clone(),
+                recovered: action.from.clone(),
+                recovered_incarnation_no: member.incarnation,
+            });
+            self.disseminator
+                .push(DisseminatorUpdate::NodesAlive(event.clone()))
+                .await;
 
-                    send_action(&*self.socket, &Action::Ack(forwarded_ack), target).await?
-                }
-            };
+            if let Err(e) = self.tx.send(event) {
+                tracing::error!("SendEventError: {}", e.to_string());
+            }
         }
+
+        match action.forward_to.is_empty() {
+            true => self.membership_list.update_member(Member {
+                addr: action.from.clone(),
+                state: NodeState::Alive as i32,
+                incarnation: member.incarnation,
+            }),
+            false => {
+                let target = &action.forward_to;
+                let mut forwarded_ack = action.clone();
+                forwarded_ack.forward_to = "".to_string();
+
+                send_action(&*self.socket, &Action::Ack(forwarded_ack), target).await?
+            }
+        };
 
         Ok(())
     }

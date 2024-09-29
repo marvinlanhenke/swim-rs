@@ -41,22 +41,24 @@ pub(crate) struct SwimNode<T: TransportLayer> {
 impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
     pub(crate) fn try_new(socket: T, config: SwimConfig, tx: Sender<Event>) -> Result<Self> {
         let addr = socket.local_addr()?;
-        let membership_list = MembershipList::new(&addr);
+        let incarnation = AtomicU64::new(0);
+        let membership_list = MembershipList::new(&addr, 0);
 
-        Self::try_new_with_membership_list(socket, config, membership_list, tx)
+        Self::try_new_with_membership_list(socket, config, membership_list, incarnation, tx)
     }
 
     pub(crate) fn try_new_with_membership_list(
         socket: T,
         config: SwimConfig,
         membership_list: MembershipList,
+        incarnation: AtomicU64,
         tx: Sender<Event>,
     ) -> Result<Self> {
         let addr = socket.local_addr()?;
         let config = Arc::new(config);
         let socket = Arc::new(socket);
         let membership_list = Arc::new(membership_list);
-        let incarnation = Arc::new(AtomicU64::new(0));
+        let incarnation = Arc::new(incarnation);
 
         let disseminator = Arc::new(Disseminator::new(
             DEFAULT_BUFFER_SIZE,
@@ -126,21 +128,31 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
                     FailureDetectorState::SendingPing => {
                         await_and_log_error!(failure_detector.send_ping(), "SendPingError");
                     }
-                    FailureDetectorState::SendingPingReq { target } => {
+                    FailureDetectorState::SendingPingReq {
+                        target,
+                        incarnation,
+                    } => {
                         await_and_log_error!(
-                            failure_detector.send_ping_req(&target),
+                            failure_detector.send_ping_req(&target, incarnation),
                             "SendPingReqError"
                         );
                     }
-                    FailureDetectorState::WaitingForAck { target, ack_type } => {
+                    FailureDetectorState::WaitingForAck {
+                        target,
+                        ack_type,
+                        incarnation,
+                    } => {
                         await_and_log_error!(
-                            failure_detector.wait_for_ack(&target, &ack_type),
+                            failure_detector.wait_for_ack(&target, &ack_type, incarnation),
                             "WaitingForAckError"
                         );
                     }
-                    FailureDetectorState::DeclaringNodeAsDead { target } => {
+                    FailureDetectorState::DeclaringNodeAsDead {
+                        target,
+                        incarnation,
+                    } => {
                         await_and_log_error!(
-                            failure_detector.declare_node_as_dead(&target),
+                            failure_detector.declare_node_as_dead(&target, incarnation),
                             "DeclareNodeAsDeadError"
                         );
                     }

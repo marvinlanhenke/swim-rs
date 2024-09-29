@@ -40,7 +40,7 @@ async fn test_swim_node_recovered_event() {
     let node2 = SwimCluster::try_new("127.0.0.1:0", SwimConfig::new())
         .await
         .unwrap();
-    node1.membership_list().add_member(node2.addr());
+    node1.membership_list().add_member(node2.addr(), 0);
 
     node1.run().await;
 
@@ -85,7 +85,7 @@ async fn test_swim_node_joined_event() {
 async fn test_swim_node_deceased_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
     let node = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
-    node.membership_list().add_member("127.0.0.1:8081");
+    node.membership_list().add_member("127.0.0.1:8081", 0);
 
     node.run().await;
 
@@ -98,7 +98,7 @@ async fn test_swim_node_deceased_event() {
 async fn test_swim_node_suspect_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
     let node = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
-    node.membership_list().add_member("127.0.0.1:8081");
+    node.membership_list().add_member("127.0.0.1:8081", 0);
 
     node.run().await;
 
