@@ -82,7 +82,7 @@ mod tests {
         let action = Action::Ping(Ping {
             from: "localhost".to_string(),
             requested_by: "".to_string(),
-            gossip: None,
+            gossip: vec![],
         });
 
         let mut buf = vec![];
@@ -104,7 +104,7 @@ mod tests {
         let action = Action::Ping(Ping {
             from: "localhost".to_string(),
             requested_by: "".to_string(),
-            gossip: None,
+            gossip: vec![],
         });
 
         let mut buf = vec![];

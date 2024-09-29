@@ -33,7 +33,7 @@ mod tests {
         let action = Action::Ping(Ping {
             from: "NODE_A".to_string(),
             requested_by: "".to_string(),
-            gossip: None,
+            gossip: vec![],
         });
 
         send_action(&socket, &action, "NODE_B").await.unwrap();
