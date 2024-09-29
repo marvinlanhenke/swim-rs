@@ -7,7 +7,7 @@ use crate::{
     pb::{
         gossip::{NodeJoined, NodeRecovered},
         swim_message::{self, Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
-        Gossip, NodeState, SwimMessage,
+        Gossip, Member, NodeState, SwimMessage,
     },
     Event,
 };
@@ -116,33 +116,37 @@ impl<T: TransportLayer> MessageHandler<T> {
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
-        if let Some(NodeState::Suspected) = self.membership_list.member_state(&action.from) {
-            let event = Event::NodeRecovered(NodeRecovered {
-                from: self.addr.clone(),
-                recovered: action.from.clone(),
-                recovered_incarnation_no: 0,
-            });
-            self.disseminator
-                .push(DisseminatorUpdate::NodesAlive(event.clone()))
-                .await;
+        if let Some(member) = self.membership_list.members().get(&action.from) {
+            if NodeState::Suspected as i32 == member.state {
+                let event = Event::NodeRecovered(NodeRecovered {
+                    from: self.addr.clone(),
+                    recovered: action.from.clone(),
+                    recovered_incarnation_no: member.incarnation,
+                });
+                self.disseminator
+                    .push(DisseminatorUpdate::NodesAlive(event.clone()))
+                    .await;
 
-            if let Err(e) = self.tx.send(event) {
-                tracing::error!("SendEventError: {}", e.to_string());
+                if let Err(e) = self.tx.send(event) {
+                    tracing::error!("SendEventError: {}", e.to_string());
+                }
             }
+
+            match action.forward_to.is_empty() {
+                true => self.membership_list.update_member(Member {
+                    addr: action.from.clone(),
+                    state: NodeState::Alive as i32,
+                    incarnation: member.incarnation,
+                }),
+                false => {
+                    let target = &action.forward_to;
+                    let mut forwarded_ack = action.clone();
+                    forwarded_ack.forward_to = "".to_string();
+
+                    send_action(&*self.socket, &Action::Ack(forwarded_ack), target).await?
+                }
+            };
         }
-
-        match action.forward_to.is_empty() {
-            true => self
-                .membership_list
-                .update_member(&action.from, NodeState::Alive),
-            false => {
-                let target = &action.forward_to;
-                let mut forwarded_ack = action.clone();
-                forwarded_ack.forward_to = "".to_string();
-
-                send_action(&*self.socket, &Action::Ack(forwarded_ack), target).await?
-            }
-        };
 
         Ok(())
     }
@@ -151,7 +155,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         let target = &action.from;
-        self.membership_list.add_member(target);
+        self.membership_list.add_member(target, 0);
 
         let event = Event::NodeJoined(NodeJoined {
             from: self.addr.clone(),
@@ -175,7 +179,7 @@ impl<T: TransportLayer> MessageHandler<T> {
     pub(crate) async fn handle_join_response(&self, action: &JoinResponse) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
-        let iter = action.members.iter().map(|x| (x.0.clone(), *x.1));
+        let iter = action.members.iter().map(|x| x.1.clone());
         self.membership_list.update_from_iter(iter)
     }
 
@@ -208,7 +212,7 @@ mod tests {
         core::{disseminate::Disseminator, member::MembershipList, message::MessageHandler},
         pb::{
             swim_message::{Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
-            NodeState, SwimMessage,
+            Member, NodeState, SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
     };
@@ -216,8 +220,8 @@ mod tests {
     fn create_message_handler() -> MessageHandler<MockUdpSocket> {
         let socket = Arc::new(MockUdpSocket::new());
 
-        let membership_list = Arc::new(MembershipList::new("NODE_A"));
-        membership_list.add_member("NODE_B");
+        let membership_list = Arc::new(MembershipList::new("NODE_A", 0));
+        membership_list.add_member("NODE_B", 0);
 
         let (tx, _) = broadcast::channel(32);
 
@@ -248,8 +252,22 @@ mod tests {
         let message_handler = create_message_handler();
 
         let mut members = message_handler.membership_list.members_hashmap();
-        members.insert("NODE_C".to_string(), NodeState::Alive as i32);
-        members.insert("NODE_D".to_string(), NodeState::Alive as i32);
+        members.insert(
+            "NODE_C".to_string(),
+            Member {
+                addr: "NODE_C".to_string(),
+                state: NodeState::Alive as i32,
+                incarnation: 0,
+            },
+        );
+        members.insert(
+            "NODE_D".to_string(),
+            Member {
+                addr: "NODE_D".to_string(),
+                state: NodeState::Alive as i32,
+                incarnation: 0,
+            },
+        );
 
         let action = JoinResponse { members };
 
@@ -321,9 +339,11 @@ mod tests {
     async fn test_message_handle_ack_no_forward() {
         let message_handler = create_message_handler();
 
-        message_handler
-            .membership_list
-            .update_member("NODE_B", NodeState::Pending);
+        message_handler.membership_list.update_member(Member {
+            addr: "Node_B".to_string(),
+            state: NodeState::Pending as i32,
+            incarnation: 0,
+        });
         let gossip = message_handler
             .disseminator
             .get_gossip(message_handler.membership_list.len())
@@ -340,6 +360,7 @@ mod tests {
         let result = message_handler
             .membership_list
             .member_state("NODE_B")
+            .unwrap()
             .unwrap();
         let expected = NodeState::Alive;
 
