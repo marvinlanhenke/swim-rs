@@ -1,4 +1,4 @@
-use std::sync::{atomic::AtomicU64, Arc};
+use std::sync::Arc;
 
 use tokio::{
     sync::broadcast::{Receiver, Sender},
@@ -34,31 +34,27 @@ pub(crate) struct SwimNode<T: TransportLayer> {
     failure_detector: Arc<FailureDetector<T>>,
     message_handler: Arc<MessageHandler<T>>,
     membership_list: Arc<MembershipList>,
-    incarnation: Arc<AtomicU64>,
     tx: Sender<Event>,
 }
 
 impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
     pub(crate) fn try_new(socket: T, config: SwimConfig, tx: Sender<Event>) -> Result<Self> {
         let addr = socket.local_addr()?;
-        let incarnation = AtomicU64::new(0);
         let membership_list = MembershipList::new(&addr, 0);
 
-        Self::try_new_with_membership_list(socket, config, membership_list, incarnation, tx)
+        Self::try_new_with_membership_list(socket, config, membership_list, tx)
     }
 
     pub(crate) fn try_new_with_membership_list(
         socket: T,
         config: SwimConfig,
         membership_list: MembershipList,
-        incarnation: AtomicU64,
         tx: Sender<Event>,
     ) -> Result<Self> {
         let addr = socket.local_addr()?;
         let config = Arc::new(config);
         let socket = Arc::new(socket);
         let membership_list = Arc::new(membership_list);
-        let incarnation = Arc::new(incarnation);
 
         let disseminator = Arc::new(Disseminator::new(
             DEFAULT_BUFFER_SIZE,
@@ -86,7 +82,6 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
             failure_detector,
             message_handler,
             membership_list,
-            incarnation,
             tx,
         })
     }
