@@ -7,7 +7,7 @@ use crate::{
     pb::{
         gossip::{NodeJoined, NodeRecovered},
         swim_message::{self, Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
-        Gossip, Member, NodeState, SwimMessage,
+        Member, NodeState, SwimMessage,
     },
     Event,
 };
@@ -70,6 +70,58 @@ impl<T: TransportLayer> MessageHandler<T> {
 
     pub(crate) async fn handle_ping(&self, action: &Ping) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
+
+        // TODO: extract, refactor
+        for gossip in &action.gossip {
+            match &gossip.event {
+                Some(Event::NodeJoined(evt)) => self.membership_list.add_member(&evt.new_member, 0),
+                Some(Event::NodeRecovered(evt)) => {
+                    let lhs = evt.recovered_incarnation_no;
+                    let rhs = self
+                        .membership_list
+                        .member_incarnation(&evt.recovered)
+                        .unwrap_or(0);
+                    if lhs > rhs {
+                        let member = Member {
+                            addr: evt.recovered.clone(),
+                            state: NodeState::Alive as i32,
+                            incarnation: evt.recovered_incarnation_no,
+                        };
+                        self.membership_list.update_member(member)
+                    }
+                }
+                Some(Event::NodeSuspected(evt)) => {
+                    let lhs = evt.suspect_incarnation_no;
+                    let rhs = self
+                        .membership_list
+                        .member_incarnation(&evt.suspect)
+                        .unwrap_or(0);
+                    let was_alive = match self.membership_list.member_state(&evt.suspect) {
+                        Some(Ok(NodeState::Alive)) => true,
+                        _ => false,
+                    };
+
+                    let should_update = match was_alive {
+                        true if lhs >= rhs => true,
+                        false if lhs > rhs => true,
+                        _ => false,
+                    };
+
+                    if should_update {
+                        let member = Member {
+                            addr: evt.suspect.clone(),
+                            state: NodeState::Suspected as i32,
+                            incarnation: evt.suspect_incarnation_no,
+                        };
+                        self.membership_list.update_member(member)
+                    }
+                }
+                Some(Event::NodeDeceased(evt)) => {
+                    self.membership_list.members().remove(&evt.deceased);
+                }
+                None => {}
+            }
+        }
 
         let from = self.addr.clone();
         let forward_to = action.requested_by.clone();
@@ -188,10 +240,6 @@ impl<T: TransportLayer> MessageHandler<T> {
         self.membership_list.update_from_iter(iter)
     }
 
-    fn _handle_gossip(&self, _gossip: Option<&Gossip>) -> Option<Gossip> {
-        todo!()
-    }
-
     pub(crate) async fn send_join_req(&self, target: impl AsRef<str>) -> Result<()> {
         let target = target.as_ref();
 
@@ -216,10 +264,12 @@ mod tests {
         api::config::DEFAULT_BUFFER_SIZE,
         core::{disseminate::Disseminator, member::MembershipList, message::MessageHandler},
         pb::{
+            gossip::{NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected},
             swim_message::{Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
-            Member, NodeState, SwimMessage,
+            Gossip, Member, NodeState, SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
+        Event,
     };
 
     fn create_message_handler() -> MessageHandler<MockUdpSocket> {
@@ -233,6 +283,154 @@ mod tests {
         let disseminator = Arc::new(Disseminator::new(DEFAULT_BUFFER_SIZE, 1));
 
         MessageHandler::new("NODE_A", socket, membership_list, disseminator, tx)
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_deceased() {
+        let message_handler = create_message_handler();
+
+        let gossip = Gossip {
+            event: Some(Event::NodeDeceased(NodeDeceased {
+                from: "NODE_B".to_string(),
+                deceased: "NODE_A".to_string(),
+                deceased_incarnation_no: 0,
+            })),
+        };
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip: vec![gossip],
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 1);
+        assert!(!message_handler
+            .membership_list
+            .members()
+            .contains_key("NODE_A"));
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_suspected() {
+        let message_handler = create_message_handler();
+
+        let gossip = Gossip {
+            event: Some(Event::NodeSuspected(NodeSuspected {
+                from: "NODE_B".to_string(),
+                suspect: "NODE_A".to_string(),
+                suspect_incarnation_no: 0,
+            })),
+        };
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip: vec![gossip],
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        let expected = message_handler
+            .membership_list
+            .member_state("NODE_A")
+            .unwrap()
+            .unwrap();
+        assert_eq!(NodeState::Suspected, expected);
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_recovered_lower_incarnation_id() {
+        let message_handler = create_message_handler();
+        let member = Member {
+            addr: "NODE_B".to_string(),
+            state: NodeState::Suspected as i32,
+            incarnation: 99,
+        };
+        message_handler.membership_list.update_member(member);
+
+        let gossip = Gossip {
+            event: Some(Event::NodeRecovered(NodeRecovered {
+                from: "NODE_B".to_string(),
+                recovered: "NODE_B".to_string(),
+                recovered_incarnation_no: 1,
+            })),
+        };
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip: vec![gossip],
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        let expected = message_handler
+            .membership_list
+            .member_state("NODE_B")
+            .unwrap()
+            .unwrap();
+        assert_eq!(NodeState::Suspected, expected);
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_recovered() {
+        let message_handler = create_message_handler();
+        let member = Member {
+            addr: "NODE_B".to_string(),
+            state: NodeState::Suspected as i32,
+            incarnation: 0,
+        };
+        message_handler.membership_list.update_member(member);
+
+        let gossip = Gossip {
+            event: Some(Event::NodeRecovered(NodeRecovered {
+                from: "NODE_B".to_string(),
+                recovered: "NODE_B".to_string(),
+                recovered_incarnation_no: 1,
+            })),
+        };
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip: vec![gossip],
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        let expected = message_handler
+            .membership_list
+            .member_state("NODE_B")
+            .unwrap()
+            .unwrap();
+        assert_eq!(NodeState::Alive, expected);
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_joined() {
+        let message_handler = create_message_handler();
+        let gossip = Gossip {
+            event: Some(Event::NodeJoined(NodeJoined {
+                from: "NODE_A".to_string(),
+                new_member: "NODE_C".to_string(),
+            })),
+        };
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip: vec![gossip],
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 3);
+        assert!(message_handler
+            .membership_list
+            .members()
+            .contains_key("NODE_C"));
     }
 
     #[tokio::test]
