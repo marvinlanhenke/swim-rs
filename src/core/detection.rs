@@ -71,10 +71,15 @@ impl<T: TransportLayer> FailureDetector<T> {
     pub(crate) async fn send_ping(&self) -> Result<()> {
         tokio::time::sleep(self.config.ping_interval()).await;
 
+        let gossip = self
+            .disseminator
+            .get_gossip(self.membership_list.len())
+            .await;
+
         let action = Action::Ping(Ping {
             from: self.addr.clone(),
             requested_by: "".to_string(),
-            gossip: None,
+            gossip,
         });
 
         if let Some((target, _)) = self.membership_list.get_random_member_list(1, None).first() {
@@ -366,6 +371,10 @@ mod tests {
     #[tokio::test]
     async fn test_detection_send_ping() {
         let failure_detector = create_failure_detector();
+        let gossip = failure_detector
+            .disseminator
+            .get_gossip(failure_detector.membership_list.len())
+            .await;
 
         failure_detector.send_ping().await.unwrap();
 
@@ -388,7 +397,7 @@ mod tests {
             action: Some(Action::Ping(Ping {
                 from: "NODE_A".to_string(),
                 requested_by: "".to_string(),
-                gossip: None,
+                gossip,
             })),
         };
         assert_eq!(result, &expected);
