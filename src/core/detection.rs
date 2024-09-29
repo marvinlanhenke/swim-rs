@@ -8,7 +8,7 @@ use crate::core::utils::send_action;
 use crate::error::Result;
 use crate::pb::gossip::{NodeDeceased, NodeSuspected};
 use crate::pb::swim_message::{Action, Ping, PingReq};
-use crate::pb::NodeState;
+use crate::pb::{Member, NodeState};
 use crate::Event;
 
 use super::disseminate::{Disseminator, DisseminatorUpdate};
@@ -24,9 +24,19 @@ pub(crate) enum AckType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FailureDetectorState {
     SendingPing,
-    SendingPingReq { target: String },
-    WaitingForAck { target: String, ack_type: AckType },
-    DeclaringNodeAsDead { target: String },
+    SendingPingReq {
+        target: String,
+        incarnation: u64,
+    },
+    WaitingForAck {
+        target: String,
+        ack_type: AckType,
+        incarnation: u64,
+    },
+    DeclaringNodeAsDead {
+        target: String,
+        incarnation: u64,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -82,33 +92,46 @@ impl<T: TransportLayer> FailureDetector<T> {
             gossip,
         });
 
-        if let Some((target, _)) = self.membership_list.get_random_member_list(1, None).first() {
+        if let Some(member) = self.membership_list.get_random_member_list(1, None).first() {
+            let target = member.addr.clone();
             tracing::debug!("[{}] sending PING to {}", &self.addr, &target);
             send_action(&*self.socket, &action, &target).await?;
 
-            self.membership_list
-                .update_member(target, NodeState::Pending);
+            let updated_member = Member {
+                addr: target.clone(),
+                state: NodeState::Pending as i32,
+                incarnation: member.incarnation,
+            };
+            self.membership_list.update_member(updated_member);
 
             let mut state = self.state.write().await;
             *state = FailureDetectorState::WaitingForAck {
-                target: target.clone(),
+                target,
                 ack_type: AckType::PingAck,
+                incarnation: member.incarnation,
             };
         };
 
         Ok(())
     }
 
-    pub(crate) async fn send_ping_req(&self, suspect: impl Into<String>) -> Result<()> {
+    pub(crate) async fn send_ping_req(
+        &self,
+        suspect: impl Into<String>,
+        incarnation: u64,
+    ) -> Result<()> {
         let suspect = suspect.into();
 
-        self.membership_list
-            .update_member(&suspect, NodeState::Suspected);
+        self.membership_list.update_member(Member {
+            addr: suspect.clone(),
+            state: NodeState::Suspected as i32,
+            incarnation,
+        });
 
         let event = Event::NodeSuspected(NodeSuspected {
             from: self.addr.to_string(),
             suspect: suspect.clone(),
-            suspect_incarnation_no: 0,
+            suspect_incarnation_no: incarnation,
         });
 
         self.disseminator
@@ -123,20 +146,25 @@ impl<T: TransportLayer> FailureDetector<T> {
             .membership_list
             .get_random_member_list(self.config.ping_req_group_size(), Some(&suspect));
 
-        for (target, _) in &probe_group {
+        for probe_member in &probe_group {
             let action = Action::PingReq(PingReq {
                 from: self.addr.clone(),
                 suspect: suspect.clone(),
             });
 
-            tracing::debug!("[{}] sending PING_REQ to {}", &self.addr, &target);
-            send_action(&*self.socket, &action, target).await?;
+            tracing::debug!(
+                "[{}] sending PING_REQ to {}",
+                &self.addr,
+                &probe_member.addr
+            );
+            send_action(&*self.socket, &action, &probe_member.addr).await?;
         }
 
         let mut state = self.state.write().await;
         *state = FailureDetectorState::WaitingForAck {
             target: suspect.clone(),
             ack_type: AckType::PingReqAck,
+            incarnation,
         };
 
         Ok(())
@@ -146,6 +174,7 @@ impl<T: TransportLayer> FailureDetector<T> {
         &self,
         target: impl Into<String>,
         ack_type: &AckType,
+        incarnation: u64,
     ) -> Result<()> {
         let target = target.into();
 
@@ -157,9 +186,14 @@ impl<T: TransportLayer> FailureDetector<T> {
                 let mut state = self.state.write().await;
 
                 match self.membership_list.member_state(&target) {
-                    Some(node_state) => match node_state {
+                    Some(node_state) => match node_state? {
                         NodeState::Alive => *state = FailureDetectorState::SendingPing,
-                        _ => *state = FailureDetectorState::SendingPingReq { target },
+                        _ => {
+                            *state = FailureDetectorState::SendingPingReq {
+                                target,
+                                incarnation,
+                            }
+                        }
                     },
                     None => *state = FailureDetectorState::SendingPing,
                 };
@@ -173,9 +207,14 @@ impl<T: TransportLayer> FailureDetector<T> {
                 let mut state = self.state.write().await;
 
                 match self.membership_list.member_state(&target) {
-                    Some(node_state) => match node_state {
+                    Some(node_state) => match node_state? {
                         NodeState::Alive => *state = FailureDetectorState::SendingPing,
-                        _ => *state = FailureDetectorState::DeclaringNodeAsDead { target },
+                        _ => {
+                            *state = FailureDetectorState::DeclaringNodeAsDead {
+                                target,
+                                incarnation,
+                            }
+                        }
                     },
                     None => *state = FailureDetectorState::SendingPing,
                 };
@@ -185,7 +224,11 @@ impl<T: TransportLayer> FailureDetector<T> {
         }
     }
 
-    pub(crate) async fn declare_node_as_dead(&self, target: impl Into<String>) -> Result<()> {
+    pub(crate) async fn declare_node_as_dead(
+        &self,
+        target: impl Into<String>,
+        incarnation: u64,
+    ) -> Result<()> {
         let addr = self.addr.clone();
         let target = target.into();
         let membership_list = self.membership_list.clone();
@@ -201,7 +244,7 @@ impl<T: TransportLayer> FailureDetector<T> {
             let event = Event::NodeDeceased(NodeDeceased {
                 from: addr.clone(),
                 deceased: target.clone(),
-                deceased_incarnation_no: 0,
+                deceased_incarnation_no: incarnation,
             });
 
             disseminator
@@ -235,7 +278,7 @@ mod tests {
         },
         pb::{
             swim_message::{Action, Ping, PingReq},
-            NodeState, SwimMessage,
+            Member, NodeState, SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
     };
@@ -251,8 +294,8 @@ mod tests {
                 .with_ping_req_timeout(Duration::from_millis(0))
                 .build(),
         );
-        let membership_list = Arc::new(MembershipList::new("NODE_A"));
-        membership_list.add_member("NODE_B");
+        let membership_list = Arc::new(MembershipList::new("NODE_A", 0));
+        membership_list.add_member("NODE_B", 0);
 
         let (tx, _) = broadcast::channel(32);
         let disseminator = Arc::new(Disseminator::new(DEFAULT_BUFFER_SIZE, 1));
@@ -264,7 +307,7 @@ mod tests {
     async fn test_detection_declare_node_as_dead() {
         let failure_detector = create_failure_detector();
         failure_detector
-            .declare_node_as_dead("NODE_B")
+            .declare_node_as_dead("NODE_B", 0)
             .await
             .unwrap();
 
@@ -276,27 +319,32 @@ mod tests {
     #[tokio::test]
     async fn test_detection_wait_for_ack_ping_req() {
         let failure_detector = create_failure_detector();
-        failure_detector
-            .membership_list
-            .update_member("NODE_B", NodeState::Suspected);
+        failure_detector.membership_list.update_member(Member {
+            addr: "NODE_B".to_string(),
+            state: NodeState::Suspected as i32,
+            incarnation: 0,
+        });
 
         failure_detector
-            .wait_for_ack("NODE_B", &AckType::PingReqAck)
+            .wait_for_ack("NODE_B", &AckType::PingReqAck, 0)
             .await
             .unwrap();
 
         let result = failure_detector.state().await;
         let expected = FailureDetectorState::DeclaringNodeAsDead {
             target: "NODE_B".to_string(),
+            incarnation: 0,
         };
         assert_eq!(result, expected);
 
-        failure_detector
-            .membership_list
-            .update_member("NODE_B", NodeState::Alive);
+        failure_detector.membership_list.update_member(Member {
+            addr: "NODE_B".to_string(),
+            state: NodeState::Alive as i32,
+            incarnation: 1,
+        });
 
         failure_detector
-            .wait_for_ack("NODE_B", &AckType::PingReqAck)
+            .wait_for_ack("NODE_B", &AckType::PingReqAck, 1)
             .await
             .unwrap();
 
@@ -308,27 +356,32 @@ mod tests {
     #[tokio::test]
     async fn test_detection_wait_for_ack_ping() {
         let failure_detector = create_failure_detector();
-        failure_detector
-            .membership_list
-            .update_member("NODE_B", NodeState::Pending);
+        failure_detector.membership_list.update_member(Member {
+            addr: "NODE_B".to_string(),
+            state: NodeState::Pending as i32,
+            incarnation: 0,
+        });
 
         failure_detector
-            .wait_for_ack("NODE_B", &AckType::PingAck)
+            .wait_for_ack("NODE_B", &AckType::PingAck, 0)
             .await
             .unwrap();
 
         let result = failure_detector.state().await;
         let expected = FailureDetectorState::SendingPingReq {
             target: "NODE_B".to_string(),
+            incarnation: 0,
         };
         assert_eq!(result, expected);
 
-        failure_detector
-            .membership_list
-            .update_member("NODE_B", NodeState::Alive);
+        failure_detector.membership_list.update_member(Member {
+            addr: "NODE_B".to_string(),
+            state: NodeState::Alive as i32,
+            incarnation: 1,
+        });
 
         failure_detector
-            .wait_for_ack("NODE_B", &AckType::PingAck)
+            .wait_for_ack("NODE_B", &AckType::PingAck, 1)
             .await
             .unwrap();
 
@@ -340,13 +393,14 @@ mod tests {
     #[tokio::test]
     async fn test_detection_send_ping_req() {
         let failure_detector = create_failure_detector();
-        failure_detector.membership_list.add_member("NODE_C");
+        failure_detector.membership_list.add_member("NODE_C", 0);
 
-        failure_detector.send_ping_req("NODE_B").await.unwrap();
+        failure_detector.send_ping_req("NODE_B", 0).await.unwrap();
 
         let result = failure_detector
             .membership_list
             .member_state("NODE_B")
+            .unwrap()
             .unwrap();
         let expected = NodeState::Suspected;
         assert_eq!(result, expected);
@@ -355,6 +409,7 @@ mod tests {
         let expected = FailureDetectorState::WaitingForAck {
             target: "NODE_B".to_string(),
             ack_type: AckType::PingReqAck,
+            incarnation: 0,
         };
         assert_eq!(result, expected);
 
@@ -381,6 +436,7 @@ mod tests {
         let result = failure_detector
             .membership_list
             .member_state("NODE_B")
+            .unwrap()
             .unwrap();
         let expected = NodeState::Pending;
         assert_eq!(result, expected);
@@ -389,6 +445,7 @@ mod tests {
         let expected = FailureDetectorState::WaitingForAck {
             target: "NODE_B".to_string(),
             ack_type: AckType::PingAck,
+            incarnation: 0,
         };
         assert_eq!(result, expected);
 
