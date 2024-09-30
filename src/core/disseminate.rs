@@ -168,6 +168,7 @@ impl Disseminator {
                 entry.num_send += 1;
                 *current_size += entry.size;
                 *num_selected += 1;
+                seen.insert(entry.id);
 
                 if entry.num_send >= max_send {
                     PeekMut::pop(entry);
@@ -266,7 +267,7 @@ mod tests {
         disseminator.push(update2).await;
         disseminator.push(update3).await;
 
-        let result = disseminator.get_gossip(0).await;
+        let result = disseminator.get_gossip(3).await;
 
         assert_eq!(
             result,
