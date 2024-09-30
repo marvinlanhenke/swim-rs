@@ -193,6 +193,7 @@ impl<T: TransportLayer> MessageHandler<T> {
     }
 
     async fn handle_gossip(&self, gossip: &[Gossip]) {
+        tracing::debug!("[{}] handling {:?}", &self.addr, gossip);
         for message in gossip {
             if let Some(event) = &message.event {
                 match event {
