@@ -71,6 +71,13 @@ async fn test_swim_node_recovered_event() {
             && event.recovered == node2.addr()
             && event.recovered_incarnation_no > 0
     });
+
+    let result = node1
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Alive);
 }
 
 #[tokio::test]
