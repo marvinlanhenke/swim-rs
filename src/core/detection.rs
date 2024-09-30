@@ -147,9 +147,14 @@ impl<T: TransportLayer> FailureDetector<T> {
             .get_random_member_list(self.config.ping_req_group_size(), Some(&suspect));
 
         for probe_member in &probe_group {
+            let gossip = self
+                .disseminator
+                .get_gossip(self.membership_list.len())
+                .await;
             let action = Action::PingReq(PingReq {
                 from: self.addr.clone(),
                 suspect: suspect.clone(),
+                gossip,
             });
 
             tracing::debug!(
@@ -413,11 +418,16 @@ mod tests {
         };
         assert_eq!(result, expected);
 
+        let gossip = failure_detector
+            .disseminator
+            .get_gossip(failure_detector.membership_list.len())
+            .await;
         let result = &failure_detector.socket.transmitted().await[0];
         let expected = SwimMessage {
             action: Some(Action::PingReq(PingReq {
                 from: "NODE_A".to_string(),
                 suspect: "NODE_B".to_string(),
+                gossip,
             })),
         };
         assert_eq!(result, &expected);

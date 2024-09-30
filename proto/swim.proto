@@ -58,6 +58,7 @@ message SwimMessage {
   message PingReq {
     string from = 1;
     string suspect = 2;
+    repeated Gossip gossip = 3;
   }
 
   message Ack {
