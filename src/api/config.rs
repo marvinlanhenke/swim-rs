@@ -23,6 +23,9 @@ pub(crate) const DEFAULT_BUFFER_SIZE: usize = 1536;
 /// The constant added to how often a message will be gossiped. Defaults to 3.
 pub(crate) const DEFAULT_GOSSIP_SEND_CONSTANT: usize = 3;
 
+/// Default number of how many messages should be included into a single `Gossip`.
+pub(crate) const DEFAULT_GOSSIP_MAX_MESSAGES: usize = 6;
+
 /// Builder for creating a [`SwimConfig`] with customized settings for a SWIM protocol node.
 /// Allows configuring timeouts, intervals, and known peers in the network.
 #[derive(Clone, Debug)]
@@ -42,6 +45,8 @@ pub struct SwimConfigBuilder {
     suspect_timeout: Duration,
     /// The constant added to how often a message will be gossiped.
     gossip_send_constant: usize,
+    /// How many messages should be included into a single `Gossip`.
+    gossip_max_messages: usize,
 }
 
 impl SwimConfigBuilder {
@@ -60,6 +65,7 @@ impl SwimConfigBuilder {
             ping_req_timeout: self.ping_req_timeout,
             suspect_timeout: self.suspect_timeout,
             gossip_send_constant: self.gossip_send_constant,
+            gossip_max_messages: self.gossip_max_messages,
         }
     }
 
@@ -111,6 +117,12 @@ impl SwimConfigBuilder {
         self.gossip_send_constant = gossip_send_offset;
         self
     }
+
+    /// Sets the number of how many messages should be included into a single `Gossip`.
+    pub fn with_gossip_max_messages(mut self, gossip_max_messages: usize) -> Self {
+        self.gossip_max_messages = gossip_max_messages;
+        self
+    }
 }
 
 impl Default for SwimConfigBuilder {
@@ -123,6 +135,7 @@ impl Default for SwimConfigBuilder {
             ping_req_timeout: DEFAULT_PING_REQ_TIMEOUT,
             suspect_timeout: DEFAULT_SUSPECT_TIMEOUT,
             gossip_send_constant: DEFAULT_GOSSIP_SEND_CONSTANT,
+            gossip_max_messages: DEFAULT_GOSSIP_MAX_MESSAGES,
         }
     }
 }
@@ -146,6 +159,8 @@ pub struct SwimConfig {
     suspect_timeout: Duration,
     /// The constant added to how often a message will be gossiped.
     gossip_send_constant: usize,
+    /// How many messages should be included into a single `Gossip`.
+    gossip_max_messages: usize,
 }
 
 impl SwimConfig {
@@ -192,6 +207,11 @@ impl SwimConfig {
     pub fn gossip_send_constant(&self) -> usize {
         self.gossip_send_constant
     }
+
+    /// Returns the maximum amount of messages to be included in a `Gossip`.
+    pub fn gossip_max_messages(&self) -> usize {
+        self.gossip_max_messages
+    }
 }
 
 impl Default for SwimConfig {
@@ -205,8 +225,8 @@ mod tests {
     use std::time::Duration;
 
     use crate::api::config::{
-        DEFAULT_GOSSIP_SEND_CONSTANT, DEFAULT_PING_REQ_GROUP_SIZE, DEFAULT_PING_REQ_TIMEOUT,
-        DEFAULT_PING_TIMEOUT, DEFAULT_SUSPECT_TIMEOUT,
+        DEFAULT_GOSSIP_MAX_MESSAGES, DEFAULT_GOSSIP_SEND_CONSTANT, DEFAULT_PING_REQ_GROUP_SIZE,
+        DEFAULT_PING_REQ_TIMEOUT, DEFAULT_PING_TIMEOUT, DEFAULT_SUSPECT_TIMEOUT,
     };
 
     use super::SwimConfig;
@@ -225,5 +245,6 @@ mod tests {
         assert_eq!(config.ping_req_timeout(), DEFAULT_PING_REQ_TIMEOUT);
         assert_eq!(config.suspect_timeout(), DEFAULT_SUSPECT_TIMEOUT);
         assert_eq!(config.gossip_send_constant(), DEFAULT_GOSSIP_SEND_CONSTANT);
+        assert_eq!(config.gossip_max_messages(), DEFAULT_GOSSIP_MAX_MESSAGES);
     }
 }
