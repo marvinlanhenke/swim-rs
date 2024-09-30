@@ -90,11 +90,18 @@ async fn test_swim_node_joined_event() {
     node2.run().await;
 
     let mut rx1 = node1.subscribe();
-    let mut _rx2 = node2.subscribe();
+    let mut rx2 = node2.subscribe();
 
     assert_event!(Event::NodeJoined, rx1, 3000, |event: NodeJoined| {
         event.from == node1.addr() && event.new_member == node2.addr()
     });
+
+    assert_event!(Event::NodeJoined, rx2, 3000, |event: NodeJoined| {
+        event.from == node2.addr() && event.new_member == node2.addr()
+    });
+
+    assert_eq!(node1.membership_list().len(), 2);
+    assert_eq!(node2.membership_list().len(), 2);
 }
 
 #[tokio::test]
