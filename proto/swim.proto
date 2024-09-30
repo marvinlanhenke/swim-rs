@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package swim;
 
-
 enum NodeState {
   Alive = 0;
   Pending = 1;
