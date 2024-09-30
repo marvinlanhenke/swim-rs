@@ -58,6 +58,10 @@ impl MembershipList {
         self.members.len()
     }
 
+    pub fn current_index(&self) -> usize {
+        self.current_index.load(Ordering::SeqCst)
+    }
+
     pub fn members(&self) -> &DashMap<String, Member> {
         &self.members
     }
@@ -121,7 +125,7 @@ impl MembershipList {
         &self,
         amount: usize,
         exclude: Option<&str>,
-    ) -> Vec<String> {
+    ) -> Vec<Member> {
         let mut sorted_members = self
             .members()
             .iter()
@@ -130,7 +134,12 @@ impl MembershipList {
         sorted_members.sort();
 
         let num_excluded = if exclude.is_some() { 1 } else { 0 };
-        let amount = amount.min(sorted_members.len().saturating_sub(num_excluded));
+        let amount = amount.min(
+            sorted_members
+                .len()
+                .saturating_sub(num_excluded)
+                .saturating_sub(1),
+        );
 
         let mut selected_members = Vec::with_capacity(amount);
         let mut selected_count = 0;
@@ -138,15 +147,23 @@ impl MembershipList {
         while selected_count < amount {
             let current_index = self.current_index.load(Ordering::SeqCst);
 
-            if let Some(member) = sorted_members.get(current_index) {
+            if let Some(member_str) = sorted_members.get(current_index) {
+                if member_str == &self.addr {
+                    let next_index = (current_index + 1) % sorted_members.len();
+                    self.current_index.store(next_index, Ordering::SeqCst);
+                    continue;
+                }
                 if let Some(exclude) = exclude {
-                    if exclude == member {
+                    if exclude == member_str {
                         let next_index = (current_index + 1) % sorted_members.len();
                         self.current_index.store(next_index, Ordering::SeqCst);
                         continue;
                     }
                 }
-                selected_members.push(member.clone());
+
+                if let Some(member) = self.members().get(member_str) {
+                    selected_members.push(member.clone());
+                }
                 selected_count += 1;
             }
 
@@ -219,27 +236,53 @@ mod tests {
         membership_list.add_member("NODE_D", 0).await;
 
         let result = membership_list.get_member_list(2, Some("NODE_C")).await;
-        assert_eq!(result, vec!["NODE_A", "NODE_B"]);
+        assert_eq!(
+            result,
+            vec![
+                Member::new("NODE_B", NodeState::Alive, 0),
+                Member::new("NODE_D", NodeState::Alive, 0)
+            ]
+        );
 
         membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(5, Some("NODE_C")).await;
-        assert_eq!(result, vec!["NODE_A", "NODE_B", "NODE_D"]);
+        assert_eq!(
+            result,
+            vec![
+                Member::new("NODE_B", NodeState::Alive, 0),
+                Member::new("NODE_D", NodeState::Alive, 0),
+            ]
+        );
 
         membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(4, None).await;
-        assert_eq!(result, vec!["NODE_A", "NODE_B", "NODE_C", "NODE_D"]);
+        assert_eq!(
+            result,
+            vec![
+                Member::new("NODE_B", NodeState::Alive, 0),
+                Member::new("NODE_C", NodeState::Alive, 0),
+                Member::new("NODE_D", NodeState::Alive, 0),
+            ]
+        );
 
         membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(99, None).await;
-        assert_eq!(result, vec!["NODE_A", "NODE_B", "NODE_C", "NODE_D"]);
+        assert_eq!(
+            result,
+            vec![
+                Member::new("NODE_B", NodeState::Alive, 0),
+                Member::new("NODE_C", NodeState::Alive, 0),
+                Member::new("NODE_D", NodeState::Alive, 0),
+            ]
+        );
 
         membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(1, None).await;
-        assert_eq!(result, vec!["NODE_A"]);
+        assert_eq!(result, vec![Member::new("NODE_B", NodeState::Alive, 0),]);
 
         membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(1, Some("NODE_A")).await;
-        assert_eq!(result, vec!["NODE_B"]);
+        assert_eq!(result, vec![Member::new("NODE_B", NodeState::Alive, 0),]);
     }
 
     #[tokio::test]

@@ -91,7 +91,7 @@ impl<T: TransportLayer> FailureDetector<T> {
             gossip,
         });
 
-        if let Some(member) = self.membership_list.get_random_member_list(1, None).first() {
+        if let Some(member) = self.membership_list.get_member_list(1, None).await.first() {
             let target = member.addr.clone();
 
             tracing::debug!("[{}] sending PING to {}", &self.addr, &target);
@@ -139,7 +139,8 @@ impl<T: TransportLayer> FailureDetector<T> {
 
         let probe_group = self
             .membership_list
-            .get_random_member_list(self.config.ping_req_group_size(), Some(&suspect));
+            .get_member_list(self.config.ping_req_group_size(), Some(&suspect))
+            .await;
 
         for probe_member in &probe_group {
             let gossip = self
