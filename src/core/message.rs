@@ -153,10 +153,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         let target = &action.from;
         self.membership_list.add_member(target, 0);
 
-        let event = Event::NodeJoined(NodeJoined {
-            from: self.addr.clone(),
-            new_member: target.clone(),
-        });
+        let event = Event::new_node_joined(&self.addr, target);
 
         self.disseminator
             .push(DisseminatorUpdate::NodesAlive(event.clone()))
@@ -209,11 +206,10 @@ impl<T: TransportLayer> MessageHandler<T> {
     fn handle_node_joined(&self, event: &NodeJoined) {
         self.membership_list.add_member(&event.new_member, 0);
 
-        let join_event = Event::NodeJoined(NodeJoined {
-            from: self.addr.clone(),
-            new_member: event.new_member.clone(),
-        });
-        if let Err(e) = self.tx.send(join_event) {
+        if let Err(e) = self
+            .tx
+            .send(Event::new_node_joined(&self.addr, &event.new_member))
+        {
             tracing::error!("SendEventError: {}", e.to_string());
         }
     }
@@ -231,13 +227,11 @@ impl<T: TransportLayer> MessageHandler<T> {
                 event.recovered_incarnation_no,
             ));
 
-            let recover_event = Event::NodeRecovered(NodeRecovered {
-                from: self.addr.clone(),
-                recovered: event.recovered.clone(),
-                recovered_incarnation_no: event.recovered_incarnation_no,
-            });
-
-            if let Err(e) = self.tx.send(recover_event) {
+            if let Err(e) = self.tx.send(Event::new_node_recovered(
+                &self.addr,
+                &event.recovered,
+                event.recovered_incarnation_no,
+            )) {
                 tracing::error!("SendEventError: {}", e.to_string());
             }
         }
@@ -245,11 +239,8 @@ impl<T: TransportLayer> MessageHandler<T> {
 
     async fn handle_node_suspected(&self, event: &NodeSuspected) {
         if event.suspect == self.addr {
-            let recover_event = Event::NodeRecovered(NodeRecovered {
-                from: self.addr.clone(),
-                recovered: self.addr.clone(),
-                recovered_incarnation_no: event.suspect_incarnation_no + 1,
-            });
+            let recover_event =
+                Event::new_node_recovered(&self.addr, &self.addr, event.suspect_incarnation_no + 1);
 
             self.disseminator
                 .push(DisseminatorUpdate::NodesAlive(recover_event.clone()))
@@ -280,13 +271,11 @@ impl<T: TransportLayer> MessageHandler<T> {
                 event.suspect_incarnation_no,
             ));
 
-            let suspect_event = Event::NodeSuspected(NodeSuspected {
-                from: self.addr.clone(),
-                suspect: event.suspect.clone(),
-                suspect_incarnation_no: event.suspect_incarnation_no,
-            });
-
-            if let Err(e) = self.tx.send(suspect_event) {
+            if let Err(e) = self.tx.send(Event::new_node_suspected(
+                &self.addr,
+                &event.suspect,
+                event.suspect_incarnation_no,
+            )) {
                 tracing::error!("SendEventError: {}", e.to_string());
             }
         }
@@ -295,8 +284,11 @@ impl<T: TransportLayer> MessageHandler<T> {
     fn handle_node_deceased(&self, event: &NodeDeceased) {
         self.membership_list.members().remove(&event.deceased);
 
-        let deceased_event = Event::NodeDeceased(event.clone());
-        if let Err(e) = self.tx.send(deceased_event) {
+        if let Err(e) = self.tx.send(Event::new_node_deceased(
+            &event.from,
+            &event.deceased,
+            event.deceased_incarnation_no,
+        )) {
             tracing::error!("SendEventError: {}", e.to_string());
         }
     }
