@@ -91,6 +91,16 @@ impl<T: TransportLayer> MessageHandler<T> {
                     }
                 }
                 Some(Event::NodeSuspected(evt)) => {
+                    if evt.suspect == self.addr {
+                        let event = Event::NodeRecovered(NodeRecovered {
+                            from: self.addr.clone(),
+                            recovered: self.addr.clone(),
+                            recovered_incarnation_no: evt.suspect_incarnation_no + 1,
+                        });
+                        self.disseminator
+                            .push(DisseminatorUpdate::NodesAlive(event))
+                            .await;
+                    }
                     let lhs = evt.suspect_incarnation_no;
                     let rhs = self
                         .membership_list
@@ -581,6 +591,7 @@ mod tests {
         let action = PingReq {
             from: "NODE_B".to_string(),
             suspect: "NODE_C".to_string(),
+            gossip: gossip.clone(),
         };
 
         message_handler.handle_ping_req(&action).await.unwrap();
