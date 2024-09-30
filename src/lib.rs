@@ -14,3 +14,4 @@ mod pb {
     include!(concat!(env!("OUT_DIR"), "/swim.rs"));
 }
 pub use pb::gossip::Event;
+pub use pb::gossip::{NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected};

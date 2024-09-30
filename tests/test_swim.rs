@@ -2,16 +2,24 @@ use std::time::Duration;
 
 use swim_rs::{
     api::{config::SwimConfig, swim::SwimCluster},
-    Event,
+    Event::{self},
+    NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected,
 };
 
 macro_rules! assert_event {
-    ($event:pat, $rx:expr, $ms:expr) => {
+    ($event:path, $rx:expr, $ms:expr, $assertion:expr) => {
         let result = tokio::time::timeout(Duration::from_millis($ms), async {
             loop {
                 match $rx.recv().await {
-                    Ok($event) => break,
-                    Ok(_) => continue,
+                    Ok(outer_event) => {
+                        if let $event(inner_event) = outer_event {
+                            if $assertion(inner_event) {
+                                break;
+                            } else {
+                                panic!()
+                            }
+                        }
+                    }
                     Err(_) => panic!(),
                 }
             }
@@ -57,7 +65,11 @@ async fn test_swim_node_recovered_event() {
         }
     }
 
-    assert_event!(Event::NodeRecovered(_), rx, 3000);
+    assert_event!(Event::NodeRecovered, rx, 3000, |event: NodeRecovered| {
+        event.from == node1.addr()
+            && event.recovered == node2.addr()
+            && event.recovered_incarnation_no > 0
+    });
 }
 
 #[tokio::test]
@@ -78,7 +90,9 @@ async fn test_swim_node_joined_event() {
 
     let mut rx = node1.subscribe();
 
-    assert_event!(Event::NodeJoined(_), rx, 3000);
+    assert_event!(Event::NodeJoined, rx, 3000, |event: NodeJoined| {
+        event.from == node1.addr() && event.new_member == node2.addr()
+    });
 }
 
 #[tokio::test]
@@ -91,7 +105,11 @@ async fn test_swim_node_deceased_event() {
 
     let mut rx = node.subscribe();
 
-    assert_event!(Event::NodeDeceased(_), rx, 3000);
+    assert_event!(Event::NodeDeceased, rx, 3000, |event: NodeDeceased| {
+        event.from == node.addr()
+            && event.deceased == "127.0.0.1:8081"
+            && event.deceased_incarnation_no == 0
+    });
 }
 
 #[tokio::test]
@@ -104,5 +122,9 @@ async fn test_swim_node_suspect_event() {
 
     let mut rx = node.subscribe();
 
-    assert_event!(Event::NodeSuspected(_), rx, 3000);
+    assert_event!(Event::NodeSuspected, rx, 3000, |event: NodeSuspected| {
+        event.from == node.addr()
+            && event.suspect == "127.0.0.1:8081"
+            && event.suspect_incarnation_no == 0
+    });
 }
