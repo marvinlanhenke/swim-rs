@@ -223,7 +223,7 @@ impl<T: TransportLayer> MessageHandler<T> {
 
             let recover_event = Event::NodeRecovered(NodeRecovered {
                 from: self.addr.clone(),
-                recovered: self.addr.clone(),
+                recovered: event.recovered.clone(),
                 recovered_incarnation_no: event.recovered_incarnation_no,
             });
             self.disseminator
