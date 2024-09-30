@@ -184,37 +184,17 @@ impl Disseminator {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        pb::{
-            gossip::{NodeDeceased, NodeJoined},
-            Gossip,
-        },
-        Event,
-    };
+    use crate::{pb::Gossip, Event};
 
     use super::{Disseminator, DisseminatorUpdate};
 
     #[tokio::test]
     async fn test_disseminator_pop_both_no_space_left() {
         let disseminator = Disseminator::new(6, 32, 1);
-        let event1 = Event::NodeJoined(NodeJoined {
-            from: "NODE_A".to_string(),
-            new_member: "NODE_B".to_string(),
-        });
-        let event2 = Event::NodeJoined(NodeJoined {
-            from: "NODE_C".to_string(),
-            new_member: "NODE_D".to_string(),
-        });
-        let event3 = Event::NodeDeceased(NodeDeceased {
-            from: "NODE_A".to_string(),
-            deceased: "NODE_B".to_string(),
-            deceased_incarnation_no: 0,
-        });
-        let event4 = Event::NodeDeceased(NodeDeceased {
-            from: "NODE_C".to_string(),
-            deceased: "NODE_D".to_string(),
-            deceased_incarnation_no: 0,
-        });
+        let event1 = Event::new_node_joined("NODE_A", "NODE_B");
+        let event2 = Event::new_node_joined("NODE_C", "NODE_D");
+        let event3 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
+        let event4 = Event::new_node_deceased("NODE_C", "NODE_D", 0);
         let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
         let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
         let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
@@ -239,24 +219,10 @@ mod tests {
     #[tokio::test]
     async fn test_disseminator_pop_both_same_len() {
         let disseminator = Disseminator::new(6, 128, 6);
-        let event1 = Event::NodeJoined(NodeJoined {
-            from: "NODE_A".to_string(),
-            new_member: "NODE_B".to_string(),
-        });
-        let event2 = Event::NodeJoined(NodeJoined {
-            from: "NODE_C".to_string(),
-            new_member: "NODE_D".to_string(),
-        });
-        let event3 = Event::NodeDeceased(NodeDeceased {
-            from: "NODE_A".to_string(),
-            deceased: "NODE_B".to_string(),
-            deceased_incarnation_no: 0,
-        });
-        let event4 = Event::NodeDeceased(NodeDeceased {
-            from: "NODE_C".to_string(),
-            deceased: "NODE_D".to_string(),
-            deceased_incarnation_no: 0,
-        });
+        let event1 = Event::new_node_joined("NODE_A", "NODE_B");
+        let event2 = Event::new_node_joined("NODE_C", "NODE_D");
+        let event3 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
+        let event4 = Event::new_node_deceased("NODE_C", "NODE_D", 0);
         let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
         let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
         let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
@@ -290,19 +256,9 @@ mod tests {
     #[tokio::test]
     async fn test_disseminator_pop_both_different_len() {
         let disseminator = Disseminator::new(6, 128, 6);
-        let event1 = Event::NodeJoined(NodeJoined {
-            from: "NODE_A".to_string(),
-            new_member: "NODE_B".to_string(),
-        });
-        let event2 = Event::NodeJoined(NodeJoined {
-            from: "NODE_C".to_string(),
-            new_member: "NODE_D".to_string(),
-        });
-        let event3 = Event::NodeDeceased(NodeDeceased {
-            from: "NODE_A".to_string(),
-            deceased: "NODE_B".to_string(),
-            deceased_incarnation_no: 0,
-        });
+        let event1 = Event::new_node_joined("NODE_A", "NODE_B");
+        let event2 = Event::new_node_joined("NODE_C", "NODE_D");
+        let event3 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
         let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
         let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
         let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
@@ -331,15 +287,8 @@ mod tests {
     #[tokio::test]
     async fn test_disseminator_pop_both() {
         let disseminator = Disseminator::new(6, 128, 0);
-        let event1 = Event::NodeJoined(NodeJoined {
-            from: "NODE_A".to_string(),
-            new_member: "NODE_B".to_string(),
-        });
-        let event2 = Event::NodeDeceased(NodeDeceased {
-            from: "NODE_A".to_string(),
-            deceased: "NODE_B".to_string(),
-            deceased_incarnation_no: 0,
-        });
+        let event1 = Event::new_node_joined("NODE_A", "NODE_B");
+        let event2 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
         let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
         let update2 = DisseminatorUpdate::NodesDeceased(event2.clone());
         disseminator.push(update1).await;
@@ -365,19 +314,11 @@ mod tests {
     #[tokio::test]
     async fn test_disseminator_push() {
         let disseminator = Disseminator::new(6, 128, 5);
-        let event = Event::NodeJoined(NodeJoined {
-            from: "NODE_A".to_string(),
-            new_member: "NODE_B".to_string(),
-        });
-        let update = DisseminatorUpdate::NodesAlive(event);
+        let update = DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B"));
         disseminator.push(update).await;
 
-        let event = Event::NodeDeceased(NodeDeceased {
-            from: "NODE_A".to_string(),
-            deceased: "NODE_B".to_string(),
-            deceased_incarnation_no: 0,
-        });
-        let update = DisseminatorUpdate::NodesDeceased(event);
+        let update =
+            DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_A", "NODE_B", 0));
         disseminator.push(update).await;
 
         assert_eq!(disseminator.nodes_alive.read().await.len(), 1);
