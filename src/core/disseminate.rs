@@ -1,15 +1,17 @@
 use std::{
-    collections::{binary_heap::PeekMut, BinaryHeap},
+    collections::{binary_heap::PeekMut, BinaryHeap, HashSet},
     sync::Arc,
 };
 
 use prost::Message;
 use tokio::sync::{RwLock, RwLockWriteGuard};
+use uuid::Uuid;
 
 use crate::{pb::Gossip, Event};
 
 #[derive(Debug)]
 struct GossipHeapEntry {
+    id: Uuid,
     gossip: Gossip,
     num_send: usize,
     size: usize,
@@ -17,9 +19,11 @@ struct GossipHeapEntry {
 
 impl GossipHeapEntry {
     fn new(gossip: Gossip) -> Self {
+        let id = Uuid::new_v4();
         let size = gossip.encoded_len();
 
         Self {
+            id,
             gossip,
             num_send: 0,
             size,
@@ -57,17 +61,19 @@ pub(crate) enum DisseminatorUpdate {
 pub(crate) struct Disseminator {
     nodes_alive: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
     nodes_deceased: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
+    max_selected: usize,
     max_size: usize,
-    max_send_offset: usize,
+    max_send_constant: usize,
 }
 
 impl Disseminator {
-    pub(crate) fn new(max_size: usize, max_send_offset: usize) -> Self {
+    pub(crate) fn new(max_selected: usize, max_size: usize, max_send_constant: usize) -> Self {
         Self {
             nodes_alive: Arc::new(RwLock::new(BinaryHeap::new())),
             nodes_deceased: Arc::new(RwLock::new(BinaryHeap::new())),
+            max_selected,
             max_size,
-            max_send_offset,
+            max_send_constant,
         }
     }
 
@@ -88,7 +94,9 @@ impl Disseminator {
 
     pub(crate) async fn get_gossip(&self, num_members: usize) -> Vec<Gossip> {
         let max_send =
-            (((num_members as f64).log10() + 1f64) * self.max_send_offset as f64).ceil() as usize;
+            (((num_members as f64).log10() + 1f64) * self.max_send_constant as f64).ceil() as usize;
+        let max_selected_alive = self.max_selected / 2 + self.max_selected % 2;
+        let max_selected_deceased = self.max_selected - max_selected_alive;
 
         let mut gossip = Vec::new();
 
@@ -98,11 +106,12 @@ impl Disseminator {
         let mut current_size = 0;
         let mut nodes_alive_selected = 0;
         let mut nodes_deceased_selected = 0;
+        let mut seen = HashSet::new();
 
         loop {
             if (nodes_alive.is_empty() && nodes_deceased.is_empty())
-                || (nodes_alive_selected >= nodes_alive.len()
-                    && nodes_deceased_selected >= nodes_deceased.len())
+                || (nodes_alive_selected >= max_selected_alive
+                    && nodes_deceased_selected >= max_selected_deceased)
             {
                 break;
             }
@@ -110,6 +119,7 @@ impl Disseminator {
             let made_progress_alive = Self::process_heap_entry(
                 &mut nodes_alive,
                 &mut gossip,
+                &mut seen,
                 &mut nodes_alive_selected,
                 &mut current_size,
                 self.max_size,
@@ -119,6 +129,7 @@ impl Disseminator {
             let made_progress_deceased = Self::process_heap_entry(
                 &mut nodes_deceased,
                 &mut gossip,
+                &mut seen,
                 &mut nodes_deceased_selected,
                 &mut current_size,
                 self.max_size,
@@ -136,18 +147,19 @@ impl Disseminator {
     fn process_heap_entry(
         heap: &mut RwLockWriteGuard<BinaryHeap<GossipHeapEntry>>,
         gossip: &mut Vec<Gossip>,
+        seen: &mut HashSet<Uuid>,
         num_selected: &mut usize,
         current_size: &mut usize,
         max_size: usize,
         max_send: usize,
     ) -> bool {
-        if *num_selected >= heap.len() {
-            return false;
-        }
-
         match heap.peek_mut() {
             Some(mut entry) => {
                 if *current_size + entry.size > max_size {
+                    return false;
+                }
+
+                if seen.contains(&entry.id) {
                     return false;
                 }
 
@@ -184,7 +196,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_pop_both_no_space_left() {
-        let disseminator = Disseminator::new(32, 1);
+        let disseminator = Disseminator::new(6, 32, 1);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -226,7 +238,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_pop_both_same_len() {
-        let disseminator = Disseminator::new(128, 6);
+        let disseminator = Disseminator::new(6, 128, 6);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -277,7 +289,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_pop_both_different_len() {
-        let disseminator = Disseminator::new(128, 6);
+        let disseminator = Disseminator::new(6, 128, 6);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -318,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_pop_both() {
-        let disseminator = Disseminator::new(128, 0);
+        let disseminator = Disseminator::new(6, 128, 0);
         let event1 = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
@@ -352,7 +364,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disseminator_push() {
-        let disseminator = Disseminator::new(128, 5);
+        let disseminator = Disseminator::new(6, 128, 5);
         let event = Event::NodeJoined(NodeJoined {
             from: "NODE_A".to_string(),
             new_member: "NODE_B".to_string(),
