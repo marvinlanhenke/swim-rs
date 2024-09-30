@@ -6,7 +6,6 @@ use tokio::sync::RwLock;
 use crate::api::config::SwimConfig;
 use crate::core::utils::send_action;
 use crate::error::Result;
-use crate::pb::gossip::{NodeDeceased, NodeSuspected};
 use crate::pb::swim_message::{Action, Ping, PingReq};
 use crate::pb::{Member, NodeState};
 use crate::Event;
@@ -128,11 +127,7 @@ impl<T: TransportLayer> FailureDetector<T> {
             incarnation,
         ));
 
-        let event = Event::NodeSuspected(NodeSuspected {
-            from: self.addr.to_string(),
-            suspect: suspect.clone(),
-            suspect_incarnation_no: incarnation,
-        });
+        let event = Event::new_node_suspected(&self.addr, &suspect, incarnation);
 
         self.disseminator
             .push(DisseminatorUpdate::NodesAlive(event.clone()))
@@ -246,11 +241,7 @@ impl<T: TransportLayer> FailureDetector<T> {
             tracing::debug!("[{}] declaring NODE {} as deceased", &addr, &target);
             membership_list.members().remove(&target);
 
-            let event = Event::NodeDeceased(NodeDeceased {
-                from: addr.clone(),
-                deceased: target.clone(),
-                deceased_incarnation_no: incarnation,
-            });
+            let event = Event::new_node_deceased(&addr, &target, incarnation);
 
             disseminator
                 .push(DisseminatorUpdate::NodesDeceased(event.clone()))
