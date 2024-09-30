@@ -151,7 +151,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         let target = &action.from;
-        self.membership_list.add_member(target, 0);
+        self.membership_list.add_member(target, 0).await;
 
         let event = Event::new_node_joined(&self.addr, target);
 
@@ -194,7 +194,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         for message in gossip {
             if let Some(event) = &message.event {
                 match event {
-                    Event::NodeJoined(evt) => self.handle_node_joined(evt),
+                    Event::NodeJoined(evt) => self.handle_node_joined(evt).await,
                     Event::NodeRecovered(evt) => self.handle_node_recovered(evt).await,
                     Event::NodeSuspected(evt) => self.handle_node_suspected(evt).await,
                     Event::NodeDeceased(evt) => self.handle_node_deceased(evt),
@@ -203,8 +203,8 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
-    fn handle_node_joined(&self, event: &NodeJoined) {
-        self.membership_list.add_member(&event.new_member, 0);
+    async fn handle_node_joined(&self, event: &NodeJoined) {
+        self.membership_list.add_member(&event.new_member, 0).await;
 
         if let Err(e) = self
             .tx
@@ -311,11 +311,11 @@ mod tests {
         Event,
     };
 
-    fn create_message_handler() -> MessageHandler<MockUdpSocket> {
+    async fn create_message_handler() -> MessageHandler<MockUdpSocket> {
         let socket = Arc::new(MockUdpSocket::new());
 
         let membership_list = Arc::new(MembershipList::new("NODE_A", 0));
-        membership_list.add_member("NODE_B", 0);
+        membership_list.add_member("NODE_B", 0).await;
 
         let (tx, _) = broadcast::channel(32);
 
@@ -330,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ping_with_node_deceased() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
 
         let gossip = Gossip {
             event: Some(Event::new_node_deceased("NODE_B", "NODE_A", 0)),
@@ -353,7 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ping_with_node_suspected() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
 
         let gossip = Gossip {
             event: Some(Event::new_node_suspected("NODE_B", "NODE_A", 0)),
@@ -377,7 +377,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ping_with_node_recovered_lower_incarnation_id() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
         message_handler.membership_list.update_member(Member::new(
             "NODE_B",
             NodeState::Suspected,
@@ -406,7 +406,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ping_with_node_recovered() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
         message_handler.membership_list.update_member(Member::new(
             "NODE_B",
             NodeState::Suspected,
@@ -435,7 +435,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ping_with_node_joined() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
         let gossip = Gossip {
             event: Some(Event::new_node_joined("NODE_A", "NODE_C")),
         };
@@ -457,7 +457,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_send_join_request() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
 
         message_handler.send_join_req("NODE_B").await.unwrap();
 
@@ -474,7 +474,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_join_response() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
 
         let mut members = message_handler.membership_list.members_hashmap();
         members.insert(
@@ -499,7 +499,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_join_request() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
 
         let action = JoinRequest {
             from: "NODE_C".to_string(),
@@ -525,7 +525,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ack_with_forward() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
         let gossip = message_handler
             .disseminator
             .get_gossip(message_handler.membership_list.len())
@@ -554,7 +554,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ack_no_forward() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
 
         message_handler
             .membership_list
@@ -584,7 +584,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ping_req() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
         let gossip = message_handler
             .disseminator
             .get_gossip(message_handler.membership_list.len())
@@ -613,7 +613,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_handle_ping() {
-        let message_handler = create_message_handler();
+        let message_handler = create_message_handler().await;
         let gossip = message_handler
             .disseminator
             .get_gossip(message_handler.membership_list.len())

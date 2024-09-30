@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use rand::Rng;
 use rand::{seq::IteratorRandom, thread_rng};
 use snafu::location;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, RwLock};
 
 use crate::error::{Error, Result};
 use crate::pb::{Member, NodeState};
@@ -23,6 +25,8 @@ impl Member {
 pub struct MembershipList {
     addr: String,
     members: DashMap<String, Member>,
+    sorted_members: Arc<RwLock<Vec<String>>>,
+    current_index: Arc<AtomicUsize>,
     notify: Arc<Notify>,
 }
 
@@ -33,11 +37,15 @@ impl MembershipList {
             addr.clone(),
             Member::new(&addr, NodeState::Alive, incarnation),
         )]);
+        let sorted_members = Arc::new(RwLock::new(vec![addr.clone()]));
+        let current_index = Arc::new(AtomicUsize::new(0));
         let notify = Arc::new(Notify::new());
 
         Self {
             addr,
             members,
+            sorted_members,
+            current_index,
             notify,
         }
     }
@@ -78,10 +86,14 @@ impl MembershipList {
             .map(|entry| entry.value().incarnation)
     }
 
-    pub fn add_member(&self, addr: impl Into<String>, incarnation: u64) {
+    pub async fn add_member(&self, addr: impl Into<String>, incarnation: u64) {
         let addr = addr.into();
+
+        self.add_sorted_member(&addr).await;
+
         let member = Member::new(&addr, NodeState::Alive, incarnation);
         self.members.insert(addr, member);
+
         self.notify_waiters();
     }
 
@@ -102,6 +114,47 @@ impl MembershipList {
         self.notify_waiters();
 
         Ok(())
+    }
+
+    // TODO: refactor, use sorted cache, use bool when sort is needed
+    pub(crate) async fn get_member_list(
+        &self,
+        amount: usize,
+        exclude: Option<&str>,
+    ) -> Vec<String> {
+        let mut sorted_members = self
+            .members()
+            .iter()
+            .map(|x| x.key().clone())
+            .collect::<Vec<_>>();
+        sorted_members.sort();
+
+        let num_excluded = if exclude.is_some() { 1 } else { 0 };
+        let amount = amount.min(sorted_members.len().saturating_sub(num_excluded));
+
+        let mut selected_members = Vec::with_capacity(amount);
+        let mut selected_count = 0;
+
+        while selected_count < amount {
+            let current_index = self.current_index.load(Ordering::SeqCst);
+
+            if let Some(member) = sorted_members.get(current_index) {
+                if let Some(exclude) = exclude {
+                    if exclude == member {
+                        let next_index = (current_index + 1) % sorted_members.len();
+                        self.current_index.store(next_index, Ordering::SeqCst);
+                        continue;
+                    }
+                }
+                selected_members.push(member.clone());
+                selected_count += 1;
+            }
+
+            let next_index = (current_index + 1) % sorted_members.len();
+            self.current_index.store(next_index, Ordering::SeqCst);
+        }
+
+        selected_members
     }
 
     pub(crate) fn get_random_member_list(
@@ -137,6 +190,12 @@ impl MembershipList {
         }
     }
 
+    async fn add_sorted_member(&self, addr: impl Into<String>) {
+        let mut sorted_members = self.sorted_members.write().await;
+        let index = thread_rng().gen_range(0..=sorted_members.len());
+        sorted_members.insert(index, addr.into());
+    }
+
     fn notify_waiters(&self) {
         if self.len() > 1 {
             self.notify.notify_waiters();
@@ -146,14 +205,47 @@ impl MembershipList {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use crate::pb::{Member, NodeState};
 
     use super::MembershipList;
 
-    #[test]
-    fn test_membershiplist_update_member() {
+    #[tokio::test]
+    async fn test_membershiplist_get_member_list() {
         let membership_list = MembershipList::new("NODE_A", 0);
-        membership_list.add_member("NODE_B", 0);
+        membership_list.add_member("NODE_B", 0).await;
+        membership_list.add_member("NODE_C", 0).await;
+        membership_list.add_member("NODE_D", 0).await;
+
+        let result = membership_list.get_member_list(2, Some("NODE_C")).await;
+        assert_eq!(result, vec!["NODE_A", "NODE_B"]);
+
+        membership_list.current_index.store(0, Ordering::SeqCst);
+        let result = membership_list.get_member_list(5, Some("NODE_C")).await;
+        assert_eq!(result, vec!["NODE_A", "NODE_B", "NODE_D"]);
+
+        membership_list.current_index.store(0, Ordering::SeqCst);
+        let result = membership_list.get_member_list(4, None).await;
+        assert_eq!(result, vec!["NODE_A", "NODE_B", "NODE_C", "NODE_D"]);
+
+        membership_list.current_index.store(0, Ordering::SeqCst);
+        let result = membership_list.get_member_list(99, None).await;
+        assert_eq!(result, vec!["NODE_A", "NODE_B", "NODE_C", "NODE_D"]);
+
+        membership_list.current_index.store(0, Ordering::SeqCst);
+        let result = membership_list.get_member_list(1, None).await;
+        assert_eq!(result, vec!["NODE_A"]);
+
+        membership_list.current_index.store(0, Ordering::SeqCst);
+        let result = membership_list.get_member_list(1, Some("NODE_A")).await;
+        assert_eq!(result, vec!["NODE_B"]);
+    }
+
+    #[tokio::test]
+    async fn test_membershiplist_update_member() {
+        let membership_list = MembershipList::new("NODE_A", 0);
+        membership_list.add_member("NODE_B", 0).await;
         let member = Member::new("NODE_B", NodeState::Pending, 0);
         membership_list.update_member(member);
 
@@ -164,21 +256,21 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_membershiplist_add_member() {
+    #[tokio::test]
+    async fn test_membershiplist_add_member() {
         let membership_list = MembershipList::new("NODE_A", 0);
-        membership_list.add_member("NODE_B", 0);
-        membership_list.add_member("NODE_C", 0);
+        membership_list.add_member("NODE_B", 0).await;
+        membership_list.add_member("NODE_C", 0).await;
 
         assert_eq!(membership_list.len(), 3);
         assert!(membership_list.members().contains_key("NODE_B"));
         assert!(membership_list.members().contains_key("NODE_C"));
     }
 
-    #[test]
-    fn test_membershiplist_get_random_member() {
+    #[tokio::test]
+    async fn test_membershiplist_get_random_member() {
         let membership_list = MembershipList::new("NODE_A", 0);
-        membership_list.add_member("NODE_B", 0);
+        membership_list.add_member("NODE_B", 0).await;
 
         let random_members = membership_list.get_random_member_list(1, None);
         assert_eq!(random_members.len(), 1);
@@ -190,8 +282,8 @@ mod tests {
         assert_eq!(random_members.len(), 1);
     }
 
-    #[test]
-    fn test_membershiplist_update_from_iter() {
+    #[tokio::test]
+    async fn test_membershiplist_update_from_iter() {
         let iter = [
             Member::new("NODE_A", NodeState::Suspected, 0),
             Member::new("NODE_B", NodeState::Alive, 0),

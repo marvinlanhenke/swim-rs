@@ -281,7 +281,7 @@ mod tests {
 
     use super::FailureDetector;
 
-    fn create_failure_detector() -> FailureDetector<MockUdpSocket> {
+    async fn create_failure_detector() -> FailureDetector<MockUdpSocket> {
         let socket = Arc::new(MockUdpSocket::new());
         let config = Arc::new(
             SwimConfig::builder()
@@ -291,7 +291,7 @@ mod tests {
                 .build(),
         );
         let membership_list = Arc::new(MembershipList::new("NODE_A", 0));
-        membership_list.add_member("NODE_B", 0);
+        membership_list.add_member("NODE_B", 0).await;
 
         let (tx, _) = broadcast::channel(32);
         let disseminator = Arc::new(Disseminator::new(
@@ -305,7 +305,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_detection_declare_node_as_dead() {
-        let failure_detector = create_failure_detector();
+        let failure_detector = create_failure_detector().await;
         failure_detector
             .declare_node_as_dead("NODE_B", 0)
             .await
@@ -318,7 +318,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_detection_wait_for_ack_ping_req() {
-        let failure_detector = create_failure_detector();
+        let failure_detector = create_failure_detector().await;
         failure_detector.membership_list.update_member(Member::new(
             "NODE_B",
             NodeState::Suspected,
@@ -353,7 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_detection_wait_for_ack_ping() {
-        let failure_detector = create_failure_detector();
+        let failure_detector = create_failure_detector().await;
         failure_detector.membership_list.update_member(Member::new(
             "NODE_B",
             NodeState::Pending,
@@ -388,8 +388,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_detection_send_ping_req() {
-        let failure_detector = create_failure_detector();
-        failure_detector.membership_list.add_member("NODE_C", 0);
+        let failure_detector = create_failure_detector().await;
+        failure_detector
+            .membership_list
+            .add_member("NODE_C", 0)
+            .await;
 
         failure_detector.send_ping_req("NODE_B", 0).await.unwrap();
 
@@ -420,7 +423,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_detection_send_ping() {
-        let failure_detector = create_failure_detector();
+        let failure_detector = create_failure_detector().await;
         let gossip = failure_detector
             .disseminator
             .get_gossip(failure_detector.membership_list.len())
