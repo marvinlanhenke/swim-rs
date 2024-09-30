@@ -130,11 +130,11 @@ impl<T: TransportLayer> MessageHandler<T> {
         };
 
         match action.forward_to.is_empty() {
-            true => self.membership_list.update_member(Member {
-                addr: action.from.clone(),
-                state: NodeState::Alive as i32,
-                incarnation: member.incarnation,
-            }),
+            true => self.membership_list.update_member(Member::new(
+                &action.from,
+                NodeState::Alive,
+                member.incarnation,
+            )),
             false => {
                 let target = &action.forward_to;
                 let mut forwarded_ack = action.clone();
@@ -225,12 +225,11 @@ impl<T: TransportLayer> MessageHandler<T> {
             .member_incarnation(&event.recovered)
             .unwrap_or(0);
         if incoming_incarnation > current_incarnation {
-            let member = Member {
-                addr: event.recovered.clone(),
-                state: NodeState::Alive as i32,
-                incarnation: event.recovered_incarnation_no,
-            };
-            self.membership_list.update_member(member);
+            self.membership_list.update_member(Member::new(
+                &event.recovered,
+                NodeState::Alive,
+                event.recovered_incarnation_no,
+            ));
 
             let recover_event = Event::NodeRecovered(NodeRecovered {
                 from: self.addr.clone(),
@@ -275,12 +274,11 @@ impl<T: TransportLayer> MessageHandler<T> {
             || (!was_alive && incoming_incarnation > current_incarnation);
 
         if should_update {
-            let member = Member {
-                addr: event.suspect.clone(),
-                state: NodeState::Suspected as i32,
-                incarnation: event.suspect_incarnation_no,
-            };
-            self.membership_list.update_member(member);
+            self.membership_list.update_member(Member::new(
+                &event.suspect,
+                NodeState::Suspected,
+                event.suspect_incarnation_no,
+            ));
 
             let suspect_event = Event::NodeSuspected(NodeSuspected {
                 from: self.addr.clone(),
@@ -397,12 +395,11 @@ mod tests {
     #[tokio::test]
     async fn test_message_handle_ping_with_node_recovered_lower_incarnation_id() {
         let message_handler = create_message_handler();
-        let member = Member {
-            addr: "NODE_B".to_string(),
-            state: NodeState::Suspected as i32,
-            incarnation: 99,
-        };
-        message_handler.membership_list.update_member(member);
+        message_handler.membership_list.update_member(Member::new(
+            "NODE_B",
+            NodeState::Suspected,
+            99,
+        ));
 
         let gossip = Gossip {
             event: Some(Event::NodeRecovered(NodeRecovered {
@@ -431,12 +428,11 @@ mod tests {
     #[tokio::test]
     async fn test_message_handle_ping_with_node_recovered() {
         let message_handler = create_message_handler();
-        let member = Member {
-            addr: "NODE_B".to_string(),
-            state: NodeState::Suspected as i32,
-            incarnation: 0,
-        };
-        message_handler.membership_list.update_member(member);
+        message_handler.membership_list.update_member(Member::new(
+            "NODE_B",
+            NodeState::Suspected,
+            0,
+        ));
 
         let gossip = Gossip {
             event: Some(Event::NodeRecovered(NodeRecovered {
@@ -511,19 +507,11 @@ mod tests {
         let mut members = message_handler.membership_list.members_hashmap();
         members.insert(
             "NODE_C".to_string(),
-            Member {
-                addr: "NODE_C".to_string(),
-                state: NodeState::Alive as i32,
-                incarnation: 0,
-            },
+            Member::new("NODE_C", NodeState::Alive, 0),
         );
         members.insert(
             "NODE_D".to_string(),
-            Member {
-                addr: "NODE_D".to_string(),
-                state: NodeState::Alive as i32,
-                incarnation: 0,
-            },
+            Member::new("NODE_D", NodeState::Alive, 0),
         );
 
         let action = JoinResponse { members };
@@ -596,11 +584,9 @@ mod tests {
     async fn test_message_handle_ack_no_forward() {
         let message_handler = create_message_handler();
 
-        message_handler.membership_list.update_member(Member {
-            addr: "Node_B".to_string(),
-            state: NodeState::Pending as i32,
-            incarnation: 0,
-        });
+        message_handler
+            .membership_list
+            .update_member(Member::new("NODE_B", NodeState::Pending, 0));
         let gossip = message_handler
             .disseminator
             .get_gossip(message_handler.membership_list.len())
