@@ -3,7 +3,7 @@ use std::time::Duration;
 use swim_rs::{
     api::{config::SwimConfig, swim::SwimCluster},
     Event::{self},
-    NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected,
+    NodeDeceased, NodeJoined, NodeRecovered, NodeState, NodeSuspected,
 };
 
 macro_rules! assert_event {
@@ -52,10 +52,11 @@ async fn test_swim_node_recovered_event() {
 
     node1.run().await;
 
-    let mut rx = node1.subscribe();
+    let mut rx1 = node1.subscribe();
+    let mut _rx2 = node2.subscribe();
 
     loop {
-        match rx.recv().await {
+        match rx1.recv().await {
             Ok(Event::NodeSuspected(_)) => {
                 node2.run().await;
                 break;
@@ -65,7 +66,7 @@ async fn test_swim_node_recovered_event() {
         }
     }
 
-    assert_event!(Event::NodeRecovered, rx, 3000, |event: NodeRecovered| {
+    assert_event!(Event::NodeRecovered, rx1, 3000, |event: NodeRecovered| {
         event.from == node1.addr()
             && event.recovered == node2.addr()
             && event.recovered_incarnation_no > 0
@@ -88,9 +89,10 @@ async fn test_swim_node_joined_event() {
     node1.run().await;
     node2.run().await;
 
-    let mut rx = node1.subscribe();
+    let mut rx1 = node1.subscribe();
+    let mut _rx2 = node2.subscribe();
 
-    assert_event!(Event::NodeJoined, rx, 3000, |event: NodeJoined| {
+    assert_event!(Event::NodeJoined, rx1, 3000, |event: NodeJoined| {
         event.from == node1.addr() && event.new_member == node2.addr()
     });
 }
@@ -98,33 +100,54 @@ async fn test_swim_node_joined_event() {
 #[tokio::test]
 async fn test_swim_node_deceased_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
-    let node = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
-    node.membership_list().add_member("127.0.0.1:8081", 0);
+    let node1 = SwimCluster::try_new("127.0.0.1:0", config.clone())
+        .await
+        .unwrap();
+    let node2 = SwimCluster::try_new("127.0.0.1:0", config.clone())
+        .await
+        .unwrap();
+    node1.membership_list().add_member(node2.addr(), 0);
 
-    node.run().await;
+    node1.run().await;
 
-    let mut rx = node.subscribe();
+    let mut rx1 = node1.subscribe();
+    let mut _rx2 = node2.subscribe();
 
-    assert_event!(Event::NodeDeceased, rx, 3000, |event: NodeDeceased| {
-        event.from == node.addr()
-            && event.deceased == "127.0.0.1:8081"
+    assert_event!(Event::NodeDeceased, rx1, 3000, |event: NodeDeceased| {
+        event.from == node1.addr()
+            && event.deceased == node2.addr()
             && event.deceased_incarnation_no == 0
     });
+
+    assert_eq!(node1.membership_list().len(), 1);
 }
 
 #[tokio::test]
 async fn test_swim_node_suspect_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
-    let node = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
-    node.membership_list().add_member("127.0.0.1:8081", 0);
+    let node1 = SwimCluster::try_new("127.0.0.1:0", config.clone())
+        .await
+        .unwrap();
+    let node2 = SwimCluster::try_new("127.0.0.1:0", config.clone())
+        .await
+        .unwrap();
+    node1.membership_list().add_member(node2.addr(), 0);
 
-    node.run().await;
+    node1.run().await;
 
-    let mut rx = node.subscribe();
+    let mut rx1 = node1.subscribe();
+    let mut _rx2 = node2.subscribe();
 
-    assert_event!(Event::NodeSuspected, rx, 3000, |event: NodeSuspected| {
-        event.from == node.addr()
-            && event.suspect == "127.0.0.1:8081"
+    assert_event!(Event::NodeSuspected, rx1, 3000, |event: NodeSuspected| {
+        event.from == node1.addr()
+            && event.suspect == node2.addr()
             && event.suspect_incarnation_no == 0
     });
+
+    let result = node1
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Suspected);
 }
