@@ -86,7 +86,7 @@ impl<T: TransportLayer> MessageHandler<T> {
             gossip,
         });
 
-        // We check if the PING was `requested_by` PING_REQ,
+        // We check if the PING was `requested_by` a PING_REQ,
         // if it was we send the ACK to the original issuer.
         let target = match action.requested_by.is_empty() {
             true => &action.from,
@@ -128,21 +128,6 @@ impl<T: TransportLayer> MessageHandler<T> {
                 return Ok(());
             }
         };
-
-        if NodeState::Suspected as i32 == member.state {
-            let event = Event::NodeRecovered(NodeRecovered {
-                from: self.addr.clone(),
-                recovered: action.from.clone(),
-                recovered_incarnation_no: member.incarnation,
-            });
-            self.disseminator
-                .push(DisseminatorUpdate::NodesAlive(event.clone()))
-                .await;
-
-            if let Err(e) = self.tx.send(event) {
-                tracing::error!("SendEventError: {}", e.to_string());
-            }
-        }
 
         match action.forward_to.is_empty() {
             true => self.membership_list.update_member(Member {
@@ -212,7 +197,7 @@ impl<T: TransportLayer> MessageHandler<T> {
             if let Some(event) = &message.event {
                 match event {
                     Event::NodeJoined(evt) => self.membership_list.add_member(&evt.new_member, 0),
-                    Event::NodeRecovered(evt) => self.handle_node_recovered(evt),
+                    Event::NodeRecovered(evt) => self.handle_node_recovered(evt).await,
                     Event::NodeSuspected(evt) => self.handle_node_suspected(evt).await,
                     Event::NodeDeceased(evt) => {
                         self.membership_list.members().remove(&evt.deceased);
@@ -222,7 +207,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
-    fn handle_node_recovered(&self, event: &NodeRecovered) {
+    async fn handle_node_recovered(&self, event: &NodeRecovered) {
         let incoming_incarnation = event.recovered_incarnation_no;
         let current_incarnation = self
             .membership_list
@@ -234,7 +219,20 @@ impl<T: TransportLayer> MessageHandler<T> {
                 state: NodeState::Alive as i32,
                 incarnation: event.recovered_incarnation_no,
             };
-            self.membership_list.update_member(member)
+            self.membership_list.update_member(member);
+
+            let recover_event = Event::NodeRecovered(NodeRecovered {
+                from: self.addr.clone(),
+                recovered: self.addr.clone(),
+                recovered_incarnation_no: event.recovered_incarnation_no,
+            });
+            self.disseminator
+                .push(DisseminatorUpdate::NodesAlive(recover_event.clone()))
+                .await;
+
+            if let Err(e) = self.tx.send(recover_event) {
+                tracing::error!("SendEventError: {}", e.to_string());
+            }
         }
     }
 
