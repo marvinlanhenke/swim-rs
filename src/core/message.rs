@@ -208,7 +208,10 @@ impl<T: TransportLayer> MessageHandler<T> {
     fn handle_node_joined(&self, event: &NodeJoined) {
         self.membership_list.add_member(&event.new_member, 0);
 
-        let join_event = Event::NodeJoined(event.clone());
+        let join_event = Event::NodeJoined(NodeJoined {
+            from: self.addr.clone(),
+            new_member: event.new_member.clone(),
+        });
         if let Err(e) = self.tx.send(join_event) {
             tracing::error!("SendEventError: {}", e.to_string());
         }
