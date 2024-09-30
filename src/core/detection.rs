@@ -94,15 +94,15 @@ impl<T: TransportLayer> FailureDetector<T> {
 
         if let Some(member) = self.membership_list.get_random_member_list(1, None).first() {
             let target = member.addr.clone();
+
             tracing::debug!("[{}] sending PING to {}", &self.addr, &target);
             send_action(&*self.socket, &action, &target).await?;
 
-            let updated_member = Member {
-                addr: target.clone(),
-                state: NodeState::Pending as i32,
-                incarnation: member.incarnation,
-            };
-            self.membership_list.update_member(updated_member);
+            self.membership_list.update_member(Member::new(
+                &target,
+                NodeState::Pending,
+                member.incarnation,
+            ));
 
             let mut state = self.state.write().await;
             *state = FailureDetectorState::WaitingForAck {
@@ -122,11 +122,11 @@ impl<T: TransportLayer> FailureDetector<T> {
     ) -> Result<()> {
         let suspect = suspect.into();
 
-        self.membership_list.update_member(Member {
-            addr: suspect.clone(),
-            state: NodeState::Suspected as i32,
+        self.membership_list.update_member(Member::new(
+            &suspect,
+            NodeState::Suspected,
             incarnation,
-        });
+        ));
 
         let event = Event::NodeSuspected(NodeSuspected {
             from: self.addr.to_string(),
@@ -328,11 +328,11 @@ mod tests {
     #[tokio::test]
     async fn test_detection_wait_for_ack_ping_req() {
         let failure_detector = create_failure_detector();
-        failure_detector.membership_list.update_member(Member {
-            addr: "NODE_B".to_string(),
-            state: NodeState::Suspected as i32,
-            incarnation: 0,
-        });
+        failure_detector.membership_list.update_member(Member::new(
+            "NODE_B",
+            NodeState::Suspected,
+            0,
+        ));
 
         failure_detector
             .wait_for_ack("NODE_B", &AckType::PingReqAck, 0)
@@ -346,11 +346,9 @@ mod tests {
         };
         assert_eq!(result, expected);
 
-        failure_detector.membership_list.update_member(Member {
-            addr: "NODE_B".to_string(),
-            state: NodeState::Alive as i32,
-            incarnation: 1,
-        });
+        failure_detector
+            .membership_list
+            .update_member(Member::new("NODE_B", NodeState::Alive, 1));
 
         failure_detector
             .wait_for_ack("NODE_B", &AckType::PingReqAck, 1)
@@ -365,11 +363,11 @@ mod tests {
     #[tokio::test]
     async fn test_detection_wait_for_ack_ping() {
         let failure_detector = create_failure_detector();
-        failure_detector.membership_list.update_member(Member {
-            addr: "NODE_B".to_string(),
-            state: NodeState::Pending as i32,
-            incarnation: 0,
-        });
+        failure_detector.membership_list.update_member(Member::new(
+            "NODE_B",
+            NodeState::Pending,
+            0,
+        ));
 
         failure_detector
             .wait_for_ack("NODE_B", &AckType::PingAck, 0)
@@ -383,11 +381,9 @@ mod tests {
         };
         assert_eq!(result, expected);
 
-        failure_detector.membership_list.update_member(Member {
-            addr: "NODE_B".to_string(),
-            state: NodeState::Alive as i32,
-            incarnation: 1,
-        });
+        failure_detector
+            .membership_list
+            .update_member(Member::new("NODE_B", NodeState::Alive, 1));
 
         failure_detector
             .wait_for_ack("NODE_B", &AckType::PingAck, 1)
