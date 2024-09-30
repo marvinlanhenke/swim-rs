@@ -87,10 +87,8 @@ impl Disseminator {
     }
 
     pub(crate) async fn get_gossip(&self, num_members: usize) -> Vec<Gossip> {
-        let max_send = match num_members > 1 {
-            true => ((num_members as f64).log10() + self.max_send_offset as f64).ceil() as usize,
-            false => self.max_send_offset,
-        };
+        let max_send =
+            (((num_members as f64).log10() + 1f64) * self.max_send_offset as f64).ceil() as usize;
 
         let mut gossip = Vec::new();
 

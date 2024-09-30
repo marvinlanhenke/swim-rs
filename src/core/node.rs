@@ -58,7 +58,7 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
 
         let disseminator = Arc::new(Disseminator::new(
             DEFAULT_BUFFER_SIZE,
-            config.gossip_send_offset(),
+            config.gossip_send_constant(),
         ));
         let failure_detector = Arc::new(FailureDetector::new(
             &addr,
