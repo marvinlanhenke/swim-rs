@@ -304,7 +304,6 @@ mod tests {
         api::config::{DEFAULT_BUFFER_SIZE, DEFAULT_GOSSIP_MAX_MESSAGES},
         core::{disseminate::Disseminator, member::MembershipList, message::MessageHandler},
         pb::{
-            gossip::{NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected},
             swim_message::{Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
             Gossip, Member, NodeState, SwimMessage,
         },
@@ -334,11 +333,7 @@ mod tests {
         let message_handler = create_message_handler();
 
         let gossip = Gossip {
-            event: Some(Event::NodeDeceased(NodeDeceased {
-                from: "NODE_B".to_string(),
-                deceased: "NODE_A".to_string(),
-                deceased_incarnation_no: 0,
-            })),
+            event: Some(Event::new_node_deceased("NODE_B", "NODE_A", 0)),
         };
 
         let action = Ping {
@@ -361,11 +356,7 @@ mod tests {
         let message_handler = create_message_handler();
 
         let gossip = Gossip {
-            event: Some(Event::NodeSuspected(NodeSuspected {
-                from: "NODE_B".to_string(),
-                suspect: "NODE_A".to_string(),
-                suspect_incarnation_no: 0,
-            })),
+            event: Some(Event::new_node_suspected("NODE_B", "NODE_A", 0)),
         };
 
         let action = Ping {
@@ -394,11 +385,7 @@ mod tests {
         ));
 
         let gossip = Gossip {
-            event: Some(Event::NodeRecovered(NodeRecovered {
-                from: "NODE_B".to_string(),
-                recovered: "NODE_B".to_string(),
-                recovered_incarnation_no: 1,
-            })),
+            event: Some(Event::new_node_recovered("NODE_B", "NODE_B", 1)),
         };
 
         let action = Ping {
@@ -427,11 +414,7 @@ mod tests {
         ));
 
         let gossip = Gossip {
-            event: Some(Event::NodeRecovered(NodeRecovered {
-                from: "NODE_B".to_string(),
-                recovered: "NODE_B".to_string(),
-                recovered_incarnation_no: 1,
-            })),
+            event: Some(Event::new_node_recovered("NODE_B", "NODE_B", 1)),
         };
 
         let action = Ping {
@@ -454,10 +437,7 @@ mod tests {
     async fn test_message_handle_ping_with_node_joined() {
         let message_handler = create_message_handler();
         let gossip = Gossip {
-            event: Some(Event::NodeJoined(NodeJoined {
-                from: "NODE_A".to_string(),
-                new_member: "NODE_C".to_string(),
-            })),
+            event: Some(Event::new_node_joined("NODE_A", "NODE_C")),
         };
 
         let action = Ping {
