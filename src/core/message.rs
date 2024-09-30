@@ -7,7 +7,7 @@ use crate::{
     pb::{
         gossip::{NodeJoined, NodeRecovered},
         swim_message::{self, Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
-        Member, NodeState, SwimMessage,
+        Gossip, Member, NodeState, SwimMessage,
     },
     Event,
 };
@@ -71,67 +71,7 @@ impl<T: TransportLayer> MessageHandler<T> {
     pub(crate) async fn handle_ping(&self, action: &Ping) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
-        // TODO: extract, refactor
-        for gossip in &action.gossip {
-            match &gossip.event {
-                Some(Event::NodeJoined(evt)) => self.membership_list.add_member(&evt.new_member, 0),
-                Some(Event::NodeRecovered(evt)) => {
-                    let lhs = evt.recovered_incarnation_no;
-                    let rhs = self
-                        .membership_list
-                        .member_incarnation(&evt.recovered)
-                        .unwrap_or(0);
-                    if lhs > rhs {
-                        let member = Member {
-                            addr: evt.recovered.clone(),
-                            state: NodeState::Alive as i32,
-                            incarnation: evt.recovered_incarnation_no,
-                        };
-                        self.membership_list.update_member(member)
-                    }
-                }
-                Some(Event::NodeSuspected(evt)) => {
-                    if evt.suspect == self.addr {
-                        let event = Event::NodeRecovered(NodeRecovered {
-                            from: self.addr.clone(),
-                            recovered: self.addr.clone(),
-                            recovered_incarnation_no: evt.suspect_incarnation_no + 1,
-                        });
-                        self.disseminator
-                            .push(DisseminatorUpdate::NodesAlive(event))
-                            .await;
-                    }
-                    let lhs = evt.suspect_incarnation_no;
-                    let rhs = self
-                        .membership_list
-                        .member_incarnation(&evt.suspect)
-                        .unwrap_or(0);
-                    let was_alive = match self.membership_list.member_state(&evt.suspect) {
-                        Some(Ok(NodeState::Alive)) => true,
-                        _ => false,
-                    };
-
-                    let should_update = match was_alive {
-                        true if lhs >= rhs => true,
-                        false if lhs > rhs => true,
-                        _ => false,
-                    };
-
-                    if should_update {
-                        let member = Member {
-                            addr: evt.suspect.clone(),
-                            state: NodeState::Suspected as i32,
-                            incarnation: evt.suspect_incarnation_no,
-                        };
-                        self.membership_list.update_member(member)
-                    }
-                }
-                Some(Event::NodeDeceased(evt)) => {
-                    self.membership_list.members().remove(&evt.deceased);
-                }
-                None => {}
-            }
-        }
+        self.handle_gossip(&action.gossip).await;
 
         let from = self.addr.clone();
         let forward_to = action.requested_by.clone();
@@ -159,6 +99,8 @@ impl<T: TransportLayer> MessageHandler<T> {
     pub(crate) async fn handle_ping_req(&self, action: &PingReq) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
+        self.handle_gossip(&action.gossip).await;
+
         let requested_by = action.from.clone();
         let target = action.suspect.clone();
         let gossip = self
@@ -177,6 +119,8 @@ impl<T: TransportLayer> MessageHandler<T> {
 
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
+
+        self.handle_gossip(&action.gossip).await;
 
         let member = match self.membership_list.members().get(&action.from) {
             Some(member) => member.value().clone(),
@@ -261,6 +205,69 @@ impl<T: TransportLayer> MessageHandler<T> {
         send_action(&*self.socket, &action, target).await?;
 
         Ok(())
+    }
+
+    async fn handle_gossip(&self, gossip: &[Gossip]) {
+        for message in gossip {
+            match &message.event {
+                Some(Event::NodeJoined(evt)) => self.membership_list.add_member(&evt.new_member, 0),
+                Some(Event::NodeRecovered(evt)) => {
+                    let lhs = evt.recovered_incarnation_no;
+                    let rhs = self
+                        .membership_list
+                        .member_incarnation(&evt.recovered)
+                        .unwrap_or(0);
+                    if lhs > rhs {
+                        let member = Member {
+                            addr: evt.recovered.clone(),
+                            state: NodeState::Alive as i32,
+                            incarnation: evt.recovered_incarnation_no,
+                        };
+                        self.membership_list.update_member(member)
+                    }
+                }
+                Some(Event::NodeSuspected(evt)) => {
+                    if evt.suspect == self.addr {
+                        let event = Event::NodeRecovered(NodeRecovered {
+                            from: self.addr.clone(),
+                            recovered: self.addr.clone(),
+                            recovered_incarnation_no: evt.suspect_incarnation_no + 1,
+                        });
+                        self.disseminator
+                            .push(DisseminatorUpdate::NodesAlive(event))
+                            .await;
+                    }
+                    let lhs = evt.suspect_incarnation_no;
+                    let rhs = self
+                        .membership_list
+                        .member_incarnation(&evt.suspect)
+                        .unwrap_or(0);
+                    let was_alive = match self.membership_list.member_state(&evt.suspect) {
+                        Some(Ok(NodeState::Alive)) => true,
+                        _ => false,
+                    };
+
+                    let should_update = match was_alive {
+                        true if lhs >= rhs => true,
+                        false if lhs > rhs => true,
+                        _ => false,
+                    };
+
+                    if should_update {
+                        let member = Member {
+                            addr: evt.suspect.clone(),
+                            state: NodeState::Suspected as i32,
+                            incarnation: evt.suspect_incarnation_no,
+                        };
+                        self.membership_list.update_member(member)
+                    }
+                }
+                Some(Event::NodeDeceased(evt)) => {
+                    self.membership_list.members().remove(&evt.deceased);
+                }
+                None => {}
+            }
+        }
     }
 }
 
