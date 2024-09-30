@@ -22,11 +22,57 @@ impl Member {
 }
 
 #[derive(Clone, Debug)]
+struct MembershipListIndex {
+    index: Arc<RwLock<Vec<String>>>,
+    pos: Arc<AtomicUsize>,
+    len: Arc<AtomicUsize>,
+}
+
+impl MembershipListIndex {
+    fn new(index: Vec<String>, pos: usize) -> Self {
+        let len = index.len();
+
+        Self {
+            index: Arc::new(RwLock::new(index)),
+            pos: Arc::new(AtomicUsize::new(pos)),
+            len: Arc::new(AtomicUsize::new(len)),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len.load(Ordering::SeqCst)
+    }
+
+    fn pos(&self) -> usize {
+        self.pos.load(Ordering::SeqCst)
+    }
+
+    fn advance(&self) -> usize {
+        let next_pos = (self.pos() + 1) % self.len();
+        self.pos.store(next_pos, Ordering::SeqCst);
+        next_pos
+    }
+
+    async fn insert_at_random_pos(&self, addr: impl Into<String>) {
+        let pos = thread_rng().gen_range(0..=self.len());
+        let mut index = self.index.write().await;
+        index.insert(pos, addr.into());
+        self.len.store(index.len(), Ordering::SeqCst);
+    }
+
+    // TODO: if pos == 0 we need to shuffle
+    async fn current(&self) -> Option<String> {
+        let pos = self.pos();
+        let index = self.index.read().await;
+        index.get(pos).cloned()
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct MembershipList {
     addr: String,
     members: DashMap<String, Member>,
-    sorted_members: Arc<RwLock<Vec<String>>>,
-    current_index: Arc<AtomicUsize>,
+    index: MembershipListIndex,
     notify: Arc<Notify>,
 }
 
@@ -37,15 +83,13 @@ impl MembershipList {
             addr.clone(),
             Member::new(&addr, NodeState::Alive, incarnation),
         )]);
-        let sorted_members = Arc::new(RwLock::new(vec![addr.clone()]));
-        let current_index = Arc::new(AtomicUsize::new(0));
+        let index = MembershipListIndex::new(vec![addr.clone()], 0);
         let notify = Arc::new(Notify::new());
 
         Self {
             addr,
             members,
-            sorted_members,
-            current_index,
+            index,
             notify,
         }
     }
@@ -56,10 +100,6 @@ impl MembershipList {
 
     pub fn len(&self) -> usize {
         self.members.len()
-    }
-
-    pub fn current_index(&self) -> usize {
-        self.current_index.load(Ordering::SeqCst)
     }
 
     pub fn members(&self) -> &DashMap<String, Member> {
@@ -93,7 +133,7 @@ impl MembershipList {
     pub async fn add_member(&self, addr: impl Into<String>, incarnation: u64) {
         let addr = addr.into();
 
-        self.add_sorted_member(&addr).await;
+        self.index.insert_at_random_pos(&addr).await;
 
         let member = Member::new(&addr, NodeState::Alive, incarnation);
         self.members.insert(addr, member);
@@ -123,7 +163,7 @@ impl MembershipList {
         }
 
         for member in &new_inserts {
-            self.add_sorted_member(member).await;
+            self.index.insert_at_random_pos(member).await;
         }
 
         self.notify_waiters();
@@ -137,11 +177,9 @@ impl MembershipList {
         amount: usize,
         exclude: Option<&str>,
     ) -> Vec<Member> {
-        let sorted_members = self.sorted_members.read().await;
-
         let num_excluded = if exclude.is_some() { 1 } else { 0 };
         let amount = amount.min(
-            sorted_members
+            self.index
                 .len()
                 .saturating_sub(num_excluded)
                 .saturating_sub(1),
@@ -151,30 +189,27 @@ impl MembershipList {
         let mut selected_count = 0;
 
         while selected_count < amount {
-            let current_index = self.current_index.load(Ordering::SeqCst);
-
-            if let Some(member_str) = sorted_members.get(current_index) {
-                if member_str == &self.addr {
-                    let next_index = (current_index + 1) % sorted_members.len();
-                    self.current_index.store(next_index, Ordering::SeqCst);
+            if let Some(member_str) = self.index.current().await {
+                if member_str == self.addr {
+                    self.index.advance();
                     continue;
                 }
+
                 if let Some(exclude) = exclude {
                     if exclude == member_str {
-                        let next_index = (current_index + 1) % sorted_members.len();
-                        self.current_index.store(next_index, Ordering::SeqCst);
+                        self.index.advance();
                         continue;
                     }
                 }
 
-                if let Some(member) = self.members().get(member_str) {
+                if let Some(member) = self.members().get(&member_str) {
                     selected_members.push(member.clone());
                 }
+
                 selected_count += 1;
             }
 
-            let next_index = (current_index + 1) % sorted_members.len();
-            self.current_index.store(next_index, Ordering::SeqCst);
+            self.index.advance();
         }
 
         selected_members
@@ -187,12 +222,6 @@ impl MembershipList {
         }
     }
 
-    async fn add_sorted_member(&self, addr: impl Into<String>) {
-        let mut sorted_members = self.sorted_members.write().await;
-        let index = thread_rng().gen_range(0..=sorted_members.len());
-        sorted_members.insert(index, addr.into());
-    }
-
     fn notify_waiters(&self) {
         if self.len() > 1 {
             self.notify.notify_waiters();
@@ -202,8 +231,6 @@ impl MembershipList {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
-
     use crate::pb::{Member, NodeState};
 
     use super::MembershipList;
@@ -218,23 +245,18 @@ mod tests {
         let result = membership_list.get_member_list(2, Some("NODE_C")).await;
         assert_eq!(result.len(), 2);
 
-        membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(5, Some("NODE_C")).await;
         assert_eq!(result.len(), 2);
 
-        membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(4, None).await;
         assert_eq!(result.len(), 3);
 
-        membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(99, None).await;
         assert_eq!(result.len(), 3);
 
-        membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(1, None).await;
         assert_eq!(result.len(), 1);
 
-        membership_list.current_index.store(0, Ordering::SeqCst);
         let result = membership_list.get_member_list(1, Some("NODE_A")).await;
         assert_eq!(result.len(), 1);
     }
