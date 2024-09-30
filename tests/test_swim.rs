@@ -42,13 +42,49 @@ fn create_config_with_duration(duration: Duration) -> SwimConfig {
 }
 
 #[tokio::test]
+async fn test_swim_multiple_nodes_joined_event() {
+    let config = create_config_with_duration(Duration::from_millis(10));
+    let seed = SwimCluster::try_new("127.0.0.1:0", config.clone())
+        .await
+        .unwrap();
+    let join1 = SwimCluster::try_new(
+        "127.0.0.1:0",
+        SwimConfig::builder()
+            .with_known_peers(&[seed.addr()])
+            .build(),
+    )
+    .await
+    .unwrap();
+    let join2 = SwimCluster::try_new(
+        "127.0.0.1:0",
+        SwimConfig::builder()
+            .with_known_peers(&[seed.addr()])
+            .build(),
+    )
+    .await
+    .unwrap();
+
+    seed.run().await;
+    join1.run().await;
+    join2.run().await;
+
+    let mut rx_seed = seed.subscribe();
+    let mut rx_join1 = join1.subscribe();
+    let mut rx_join2 = join2.subscribe();
+
+    assert_event!(Event::NodeJoined, rx_seed, 3000, |_| true);
+    assert_event!(Event::NodeJoined, rx_join1, 3000, |_| true);
+    assert_event!(Event::NodeJoined, rx_join2, 3000, |_| true);
+}
+
+#[tokio::test]
 async fn test_swim_node_recovered_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
     let node1 = SwimCluster::try_new("127.0.0.1:0", config).await.unwrap();
     let node2 = SwimCluster::try_new("127.0.0.1:0", SwimConfig::new())
         .await
         .unwrap();
-    node1.membership_list().add_member(node2.addr(), 0);
+    node1.membership_list().add_member(node2.addr(), 0).await;
 
     node1.run().await;
 
@@ -120,7 +156,7 @@ async fn test_swim_node_deceased_event() {
     let node2 = SwimCluster::try_new("127.0.0.1:0", config.clone())
         .await
         .unwrap();
-    node1.membership_list().add_member(node2.addr(), 0);
+    node1.membership_list().add_member(node2.addr(), 0).await;
 
     node1.run().await;
 
@@ -145,7 +181,7 @@ async fn test_swim_node_suspect_event() {
     let node2 = SwimCluster::try_new("127.0.0.1:0", config.clone())
         .await
         .unwrap();
-    node1.membership_list().add_member(node2.addr(), 0);
+    node1.membership_list().add_member(node2.addr(), 0).await;
 
     node1.run().await;
 
