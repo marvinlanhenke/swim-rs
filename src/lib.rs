@@ -15,3 +15,5 @@ mod pb {
 }
 pub use pb::gossip::Event;
 pub use pb::gossip::{NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected};
+pub use pb::NodeState;
+
