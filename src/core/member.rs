@@ -9,6 +9,16 @@ use tokio::sync::Notify;
 use crate::error::{Error, Result};
 use crate::pb::{Member, NodeState};
 
+impl Member {
+    pub(crate) fn new(addr: impl Into<String>, state: NodeState, incarnation: u64) -> Self {
+        Self {
+            addr: addr.into(),
+            state: state as i32,
+            incarnation,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MembershipList {
     addr: String,
@@ -19,12 +29,10 @@ pub struct MembershipList {
 impl MembershipList {
     pub fn new(addr: impl Into<String>, incarnation: u64) -> Self {
         let addr = addr.into();
-        let member = Member {
-            addr: addr.clone(),
-            state: NodeState::Alive as i32,
-            incarnation,
-        };
-        let members = DashMap::from_iter([(addr.clone(), member)]);
+        let members = DashMap::from_iter([(
+            addr.clone(),
+            Member::new(&addr, NodeState::Alive, incarnation),
+        )]);
         let notify = Arc::new(Notify::new());
 
         Self {
@@ -72,11 +80,7 @@ impl MembershipList {
 
     pub fn add_member(&self, addr: impl Into<String>, incarnation: u64) {
         let addr = addr.into();
-        let member = Member {
-            addr: addr.clone(),
-            state: NodeState::Alive as i32,
-            incarnation,
-        };
+        let member = Member::new(&addr, NodeState::Alive, incarnation);
         self.members.insert(addr, member);
         self.notify_waiters();
     }
@@ -150,11 +154,7 @@ mod tests {
     fn test_membershiplist_update_member() {
         let membership_list = MembershipList::new("NODE_A", 0);
         membership_list.add_member("NODE_B", 0);
-        let member = Member {
-            addr: "NODE_B".to_string(),
-            state: NodeState::Pending as i32,
-            incarnation: 0,
-        };
+        let member = Member::new("NODE_B", NodeState::Pending, 0);
         membership_list.update_member(member);
 
         assert_eq!(membership_list.len(), 2);
@@ -193,21 +193,9 @@ mod tests {
     #[test]
     fn test_membershiplist_update_from_iter() {
         let iter = [
-            Member {
-                addr: "NODE_A".to_string(),
-                state: NodeState::Suspected as i32,
-                incarnation: 0,
-            },
-            Member {
-                addr: "NODE_B".to_string(),
-                state: NodeState::Alive as i32,
-                incarnation: 0,
-            },
-            Member {
-                addr: "NODE_C".to_string(),
-                state: NodeState::Alive as i32,
-                incarnation: 0,
-            },
+            Member::new("NODE_A", NodeState::Suspected, 0),
+            Member::new("NODE_B", NodeState::Alive, 0),
+            Member::new("NODE_C", NodeState::Alive, 0),
         ];
         let addr = "NODE_A";
         let membership_list = MembershipList::new(addr, 0);
