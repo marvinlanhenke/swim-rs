@@ -173,7 +173,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         let iter = action.members.iter().map(|x| x.1.clone());
-        self.membership_list.update_from_iter(iter)
+        self.membership_list.update_from_iter(iter).await
     }
 
     pub(crate) async fn send_join_req(&self, target: impl AsRef<str>) -> Result<()> {
