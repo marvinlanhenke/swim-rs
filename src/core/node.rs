@@ -57,6 +57,7 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         let membership_list = Arc::new(membership_list);
 
         let disseminator = Arc::new(Disseminator::new(
+            config.gossip_max_messages(),
             DEFAULT_BUFFER_SIZE,
             config.gossip_send_constant(),
         ));

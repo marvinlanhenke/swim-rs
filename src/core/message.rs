@@ -311,7 +311,7 @@ mod tests {
     use tokio::sync::broadcast;
 
     use crate::{
-        api::config::DEFAULT_BUFFER_SIZE,
+        api::config::{DEFAULT_BUFFER_SIZE, DEFAULT_GOSSIP_MAX_MESSAGES},
         core::{disseminate::Disseminator, member::MembershipList, message::MessageHandler},
         pb::{
             gossip::{NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected},
@@ -330,7 +330,11 @@ mod tests {
 
         let (tx, _) = broadcast::channel(32);
 
-        let disseminator = Arc::new(Disseminator::new(DEFAULT_BUFFER_SIZE, 1));
+        let disseminator = Arc::new(Disseminator::new(
+            DEFAULT_GOSSIP_MAX_MESSAGES,
+            DEFAULT_BUFFER_SIZE,
+            1,
+        ));
 
         MessageHandler::new("NODE_A", socket, membership_list, disseminator, tx)
     }

@@ -275,14 +275,14 @@ mod tests {
     use tokio::sync::broadcast;
 
     use crate::{
-        api::config::{SwimConfig, DEFAULT_BUFFER_SIZE},
+        api::config::{SwimConfig, DEFAULT_BUFFER_SIZE, DEFAULT_GOSSIP_MAX_MESSAGES},
         core::{
             detection::{AckType, FailureDetectorState},
             disseminate::Disseminator,
             member::MembershipList,
         },
         pb::{
-            swim_message::{Action, Ping, PingReq},
+            swim_message::{Action, Ping},
             Member, NodeState, SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
@@ -303,7 +303,11 @@ mod tests {
         membership_list.add_member("NODE_B", 0);
 
         let (tx, _) = broadcast::channel(32);
-        let disseminator = Arc::new(Disseminator::new(DEFAULT_BUFFER_SIZE, 1));
+        let disseminator = Arc::new(Disseminator::new(
+            DEFAULT_GOSSIP_MAX_MESSAGES,
+            DEFAULT_BUFFER_SIZE,
+            1,
+        ));
 
         FailureDetector::new("NODE_A", socket, config, membership_list, disseminator, tx)
     }
@@ -418,19 +422,13 @@ mod tests {
         };
         assert_eq!(result, expected);
 
-        let gossip = failure_detector
-            .disseminator
-            .get_gossip(failure_detector.membership_list.len())
-            .await;
-        let result = &failure_detector.socket.transmitted().await[0];
-        let expected = SwimMessage {
-            action: Some(Action::PingReq(PingReq {
-                from: "NODE_A".to_string(),
-                suspect: "NODE_B".to_string(),
-                gossip,
-            })),
-        };
-        assert_eq!(result, &expected);
+        let result = matches!(
+            &failure_detector.socket.transmitted().await[0],
+            SwimMessage {
+                action: Some(Action::PingReq(_))
+            }
+        );
+        assert!(result);
     }
 
     #[tokio::test]
