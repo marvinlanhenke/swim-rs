@@ -302,13 +302,10 @@ impl<T: TransportLayer> MessageHandler<T> {
     }
 
     async fn handle_node_deceased(&self, event: &NodeDeceased) {
-        let node_existed = self
-            .membership_list
-            .members()
-            .remove(&event.deceased)
-            .is_some();
+        let node_exists = self.membership_list.members().contains_key(&event.deceased);
 
-        if node_existed {
+        if node_exists {
+            self.membership_list.remove_member(&event.deceased).await;
             let deceased_event = Event::new_node_deceased(
                 &event.from,
                 &event.deceased,

@@ -73,6 +73,13 @@ impl MembershipListIndex {
         self.len.store(index.len(), Ordering::SeqCst);
     }
 
+    async fn remove(&self, addr: impl AsRef<str>) {
+        let mut index = self.index.write().await;
+        if let Some(pos) = index.iter().position(|x| x == addr.as_ref()) {
+            index.remove(pos);
+        }
+    }
+
     async fn current(&self) -> Option<String> {
         let pos = self.pos();
         let index = self.index.read().await;
@@ -189,6 +196,12 @@ impl MembershipList {
         self.notify_waiters();
 
         Ok(())
+    }
+
+    pub(crate) async fn remove_member(&self, addr: impl AsRef<str>) -> bool {
+        let addr = addr.as_ref();
+        self.index.remove(addr).await;
+        self.members().remove(addr).is_some()
     }
 
     pub(crate) async fn get_member_list(

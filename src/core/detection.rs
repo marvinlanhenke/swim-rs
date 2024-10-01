@@ -238,9 +238,10 @@ impl<T: TransportLayer> FailureDetector<T> {
         let tx = self.tx.clone();
 
         tokio::spawn(async move {
-            tokio::time::sleep(suspect_timeout).await;
             tracing::debug!("[{}] declaring NODE {} as deceased", &addr, &target);
-            membership_list.members().remove(&target);
+            tokio::time::sleep(suspect_timeout).await;
+
+            membership_list.remove_member(&target).await;
 
             let event = Event::new_node_deceased(&addr, &target, incarnation);
 
