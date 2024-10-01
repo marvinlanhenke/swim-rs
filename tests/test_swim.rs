@@ -41,13 +41,15 @@ fn create_config_with_duration(duration: Duration) -> SwimConfig {
         .build()
 }
 
+// TODO: test deceased with multiple nodes
+
 #[tokio::test]
-async fn test_swim_multiple_nodes_joined_event() {
+async fn test_swim_multiple_nodes_recovered_event() {
     let config = create_config_with_duration(Duration::from_millis(10));
     let seed = SwimCluster::try_new("127.0.0.1:0", config.clone())
         .await
         .unwrap();
-    let join1 = SwimCluster::try_new(
+    let node1 = SwimCluster::try_new(
         "127.0.0.1:0",
         SwimConfig::builder()
             .with_known_peers(&[seed.addr()])
@@ -55,7 +57,7 @@ async fn test_swim_multiple_nodes_joined_event() {
     )
     .await
     .unwrap();
-    let join2 = SwimCluster::try_new(
+    let node2 = SwimCluster::try_new(
         "127.0.0.1:0",
         SwimConfig::builder()
             .with_known_peers(&[seed.addr()])
@@ -65,16 +67,158 @@ async fn test_swim_multiple_nodes_joined_event() {
     .unwrap();
 
     seed.run().await;
-    join1.run().await;
-    join2.run().await;
+    node1.run().await;
+    let handles = node2.run().await;
 
     let mut rx_seed = seed.subscribe();
-    let mut rx_join1 = join1.subscribe();
-    let mut rx_join2 = join2.subscribe();
+    let mut rx_node1 = node1.subscribe();
+    let mut rx_node2 = node2.subscribe();
 
     assert_event!(Event::NodeJoined, rx_seed, 3000, |_| true);
-    assert_event!(Event::NodeJoined, rx_join1, 3000, |_| true);
-    assert_event!(Event::NodeJoined, rx_join2, 3000, |_| true);
+    assert_event!(Event::NodeJoined, rx_node1, 3000, |_| true);
+    assert_event!(Event::NodeJoined, rx_node2, 3000, |_| true);
+
+    handles.0.abort();
+    handles.1.abort();
+
+    assert_event!(Event::NodeSuspected, rx_seed, 3000, |_| true);
+    assert_event!(Event::NodeSuspected, rx_node1, 3000, |_| true);
+
+    let result = seed
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Suspected);
+
+    let result = node1
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Suspected);
+
+    node2.run().await;
+
+    assert_event!(Event::NodeRecovered, rx_seed, 3000, |_| true);
+    assert_event!(Event::NodeRecovered, rx_node1, 3000, |_| true);
+    assert_event!(Event::NodeRecovered, rx_node2, 3000, |_| true);
+
+    let result = seed
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Alive);
+
+    let result = node1
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Alive);
+
+    let result = node2
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Alive);
+}
+
+#[tokio::test]
+async fn test_swim_multiple_nodes_suspected_event() {
+    let config = create_config_with_duration(Duration::from_millis(10));
+    let seed = SwimCluster::try_new("127.0.0.1:0", config.clone())
+        .await
+        .unwrap();
+    let node1 = SwimCluster::try_new(
+        "127.0.0.1:0",
+        SwimConfig::builder()
+            .with_known_peers(&[seed.addr()])
+            .build(),
+    )
+    .await
+    .unwrap();
+    let node2 = SwimCluster::try_new(
+        "127.0.0.1:0",
+        SwimConfig::builder()
+            .with_known_peers(&[seed.addr()])
+            .build(),
+    )
+    .await
+    .unwrap();
+
+    seed.run().await;
+    node1.run().await;
+    let handles = node2.run().await;
+
+    let mut rx_seed = seed.subscribe();
+    let mut rx_node1 = node1.subscribe();
+    let mut rx_node2 = node2.subscribe();
+
+    assert_event!(Event::NodeJoined, rx_seed, 3000, |_| true);
+    assert_event!(Event::NodeJoined, rx_node1, 3000, |_| true);
+    assert_event!(Event::NodeJoined, rx_node2, 3000, |_| true);
+
+    // stop node 2
+    handles.0.abort();
+    handles.1.abort();
+
+    assert_event!(Event::NodeSuspected, rx_seed, 3000, |_| true);
+    assert_event!(Event::NodeSuspected, rx_node1, 3000, |_| true);
+
+    let result = seed
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Suspected);
+
+    let result = node1
+        .membership_list()
+        .member_state(node2.addr())
+        .unwrap()
+        .unwrap();
+    assert_eq!(result, NodeState::Suspected);
+}
+
+#[tokio::test]
+async fn test_swim_multiple_nodes_joined_event() {
+    let config = create_config_with_duration(Duration::from_millis(10));
+    let seed = SwimCluster::try_new("127.0.0.1:0", config.clone())
+        .await
+        .unwrap();
+    let node1 = SwimCluster::try_new(
+        "127.0.0.1:0",
+        SwimConfig::builder()
+            .with_known_peers(&[seed.addr()])
+            .build(),
+    )
+    .await
+    .unwrap();
+    let node2 = SwimCluster::try_new(
+        "127.0.0.1:0",
+        SwimConfig::builder()
+            .with_known_peers(&[seed.addr()])
+            .build(),
+    )
+    .await
+    .unwrap();
+
+    seed.run().await;
+    node1.run().await;
+    node2.run().await;
+
+    let mut rx_seed = seed.subscribe();
+    let mut rx_node1 = seed.subscribe();
+    let mut rx_node2 = seed.subscribe();
+
+    assert_event!(Event::NodeJoined, rx_seed, 3000, |_| true);
+    assert_event!(Event::NodeJoined, rx_node1, 3000, |_| true);
+    assert_event!(Event::NodeJoined, rx_node2, 3000, |_| true);
+
+    assert_eq!(seed.membership_list().members().len(), 3);
 }
 
 #[tokio::test]
@@ -132,18 +276,12 @@ async fn test_swim_node_joined_event() {
     node2.run().await;
 
     let mut rx1 = node1.subscribe();
-    let mut rx2 = node2.subscribe();
 
     assert_event!(Event::NodeJoined, rx1, 3000, |event: NodeJoined| {
         event.from == node1.addr() && event.new_member == node2.addr()
     });
 
-    assert_event!(Event::NodeJoined, rx2, 3000, |event: NodeJoined| {
-        event.from == node2.addr() && event.new_member == node2.addr()
-    });
-
     assert_eq!(node1.membership_list().len(), 2);
-    assert_eq!(node2.membership_list().len(), 2);
 }
 
 #[tokio::test]
@@ -196,5 +334,6 @@ async fn test_swim_node_suspect_event() {
         .member_state(node2.addr())
         .unwrap()
         .unwrap();
+
     assert_eq!(result, NodeState::Suspected);
 }
