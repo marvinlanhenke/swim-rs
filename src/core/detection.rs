@@ -134,7 +134,7 @@ impl<T: TransportLayer> FailureDetector<T> {
             .await;
 
         if let Err(e) = self.tx.send(event) {
-            tracing::error!("SendEventError: {}", e.to_string());
+            tracing::debug!("SendEventError: {}", e.to_string());
         }
 
         let probe_group = self
@@ -249,7 +249,7 @@ impl<T: TransportLayer> FailureDetector<T> {
                 .await;
 
             if let Err(e) = tx.send(event) {
-                tracing::error!("SendEventError: {}", e.to_string());
+                tracing::debug!("SendEventError: {}", e.to_string());
             };
         });
 

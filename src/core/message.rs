@@ -160,7 +160,7 @@ impl<T: TransportLayer> MessageHandler<T> {
             .await;
 
         if let Err(e) = self.tx.send(event) {
-            tracing::error!("SendEventError: {}", e.to_string());
+            tracing::debug!("SendEventError: {}", e.to_string());
         }
 
         let members = self.membership_list.members_hashmap();
@@ -210,7 +210,7 @@ impl<T: TransportLayer> MessageHandler<T> {
             .tx
             .send(Event::new_node_joined(&self.addr, &event.new_member))
         {
-            tracing::error!("SendEventError: {}", e.to_string());
+            tracing::debug!("SendEventError: {}", e.to_string());
         }
     }
 
@@ -232,7 +232,7 @@ impl<T: TransportLayer> MessageHandler<T> {
                 &event.recovered,
                 event.recovered_incarnation_no,
             )) {
-                tracing::error!("SendEventError: {}", e.to_string());
+                tracing::debug!("SendEventError: {}", e.to_string());
             }
         }
     }
@@ -247,7 +247,7 @@ impl<T: TransportLayer> MessageHandler<T> {
                 .await;
 
             if let Err(e) = self.tx.send(recover_event) {
-                tracing::error!("SendEventError: {}", e.to_string());
+                tracing::debug!("SendEventError: {}", e.to_string());
             }
         }
 
@@ -276,7 +276,7 @@ impl<T: TransportLayer> MessageHandler<T> {
                 &event.suspect,
                 event.suspect_incarnation_no,
             )) {
-                tracing::error!("SendEventError: {}", e.to_string());
+                tracing::debug!("SendEventError: {}", e.to_string());
             }
         }
     }
@@ -289,7 +289,7 @@ impl<T: TransportLayer> MessageHandler<T> {
             &event.deceased,
             event.deceased_incarnation_no,
         )) {
-            tracing::error!("SendEventError: {}", e.to_string());
+            tracing::debug!("SendEventError: {}", e.to_string());
         }
     }
 }
