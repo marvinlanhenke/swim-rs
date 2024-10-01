@@ -89,7 +89,6 @@ async fn test_swim_node_recovered_event() {
     node1.run().await;
 
     let mut rx1 = node1.subscribe();
-    let mut _rx2 = node2.subscribe();
 
     loop {
         match rx1.recv().await {
@@ -161,7 +160,6 @@ async fn test_swim_node_deceased_event() {
     node1.run().await;
 
     let mut rx1 = node1.subscribe();
-    let mut _rx2 = node2.subscribe();
 
     assert_event!(Event::NodeDeceased, rx1, 3000, |event: NodeDeceased| {
         event.from == node1.addr()
@@ -186,7 +184,6 @@ async fn test_swim_node_suspect_event() {
     node1.run().await;
 
     let mut rx1 = node1.subscribe();
-    let mut _rx2 = node2.subscribe();
 
     assert_event!(Event::NodeSuspected, rx1, 3000, |event: NodeSuspected| {
         event.from == node1.addr()
