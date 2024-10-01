@@ -204,18 +204,23 @@ impl<T: TransportLayer> MessageHandler<T> {
     }
 
     async fn handle_node_joined(&self, event: &NodeJoined) {
-        let node_existed = self.membership_list.add_member(&event.new_member, 0).await;
+        let node_exists = self
+            .membership_list
+            .members()
+            .contains_key(&event.new_member);
 
         let joined_event = Event::new_node_joined(&self.addr, &event.new_member);
 
-        if !node_existed {
-            self.disseminator
-                .push(DisseminatorUpdate::NodesAlive(joined_event.clone()))
-                .await;
+        if let Err(e) = self.tx.send(joined_event.clone()) {
+            tracing::debug!("SendEventError: {}", e.to_string());
         }
 
-        if let Err(e) = self.tx.send(joined_event) {
-            tracing::debug!("SendEventError: {}", e.to_string());
+        if !node_exists {
+            self.membership_list.add_member(&event.new_member, 0).await;
+
+            self.disseminator
+                .push(DisseminatorUpdate::NodesAlive(joined_event))
+                .await;
         }
     }
 
