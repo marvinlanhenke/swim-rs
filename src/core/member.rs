@@ -183,45 +183,39 @@ impl MembershipList {
         Ok(())
     }
 
-    // TODO: refactor, use sorted cache, use bool when sort is needed
     pub(crate) async fn get_member_list(
         &self,
         amount: usize,
         exclude: Option<&str>,
     ) -> Vec<Member> {
-        let num_excluded = if exclude.is_some() { 1 } else { 0 };
-        let amount = amount.min(
-            self.index
-                .len()
-                .saturating_sub(num_excluded)
-                .saturating_sub(1),
-        );
+        let max_amount = match exclude.is_some() {
+            true => amount.min(self.index.len().saturating_sub(2)),
+            false => amount.min(self.index.len().saturating_sub(1)),
+        };
 
-        let mut selected_members = Vec::with_capacity(amount);
-        let mut selected_count = 0;
+        let mut selected_members = Vec::with_capacity(max_amount);
 
-        while selected_count < amount {
-            if let Some(member_str) = self.index.current().await {
-                if member_str == self.addr {
-                    self.index.advance().await;
-                    continue;
-                }
+        while selected_members.len() < max_amount {
+            match self.index.current().await {
+                Some(member_str) => {
+                    let should_skip =
+                        member_str == self.addr || exclude.map_or(false, |addr| addr == member_str);
 
-                if let Some(exclude) = exclude {
-                    if exclude == member_str {
+                    if should_skip {
                         self.index.advance().await;
                         continue;
                     }
-                }
 
-                if let Some(member) = self.members().get(&member_str) {
-                    selected_members.push(member.clone());
-                }
+                    if let Some(member) = self.members().get(&member_str) {
+                        selected_members.push(member.clone());
+                    }
 
-                selected_count += 1;
+                    self.index.advance().await;
+                }
+                None => {
+                    break;
+                }
             }
-
-            self.index.advance().await;
         }
 
         selected_members
