@@ -30,8 +30,9 @@ struct MembershipListIndex {
 }
 
 impl MembershipListIndex {
-    fn new(index: Vec<String>, pos: usize) -> Self {
+    fn new(index: &[&str], pos: usize) -> Self {
         let len = index.len();
+        let index = index.iter().map(|x| x.to_string()).collect::<Vec<_>>();
 
         Self {
             index: Arc::new(RwLock::new(index)),
@@ -99,7 +100,7 @@ impl MembershipList {
             addr.clone(),
             Member::new(&addr, NodeState::Alive, incarnation),
         )]);
-        let index = MembershipListIndex::new(vec![addr.clone()], 0);
+        let index = MembershipListIndex::new(&[&addr], 0);
         let notify = Arc::new(Notify::new());
 
         Self {
@@ -239,7 +240,33 @@ impl MembershipList {
 mod tests {
     use crate::pb::{Member, NodeState};
 
-    use super::MembershipList;
+    use super::{MembershipList, MembershipListIndex};
+
+    #[tokio::test]
+    async fn test_membershiplist_index_shuffle_on_complete_iteration() {
+        let members = vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+        let index = MembershipListIndex::new(&members, members.len() - 1);
+
+        let result = index.current().await;
+        assert_eq!(result, Some("j".to_string()));
+
+        index.advance().await;
+        assert_eq!(index.pos(), 0);
+        assert_ne!(members, index.index.read().await.as_slice());
+    }
+
+    #[tokio::test]
+    async fn test_membershiplist_index_current_advance() {
+        let members = vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+        let index = MembershipListIndex::new(&members, 0);
+
+        let result = index.current().await;
+        assert_eq!(result, Some("a".to_string()));
+
+        index.advance().await;
+        let result = index.current().await;
+        assert_eq!(result, Some("b".to_string()));
+    }
 
     #[tokio::test]
     async fn test_membershiplist_get_member_list() {
