@@ -289,6 +289,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_membershiplist_remove_member() {
+        let membership_list = MembershipList::new("NODE_A", 0);
+        membership_list.add_member("NODE_B", 0).await;
+        membership_list.add_member("NODE_C", 0).await;
+        membership_list.add_member("NODE_D", 0).await;
+
+        membership_list.remove_member("NODE_C").await;
+
+        assert_eq!(membership_list.len(), 3);
+        assert_eq!(membership_list.index.index.read().await.len(), 3);
+    }
+
+    #[tokio::test]
     async fn test_membershiplist_get_member_list() {
         let membership_list = MembershipList::new("NODE_A", 0);
         membership_list.add_member("NODE_B", 0).await;
