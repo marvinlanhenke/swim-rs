@@ -59,6 +59,12 @@ impl MembershipListIndex {
         next_pos
     }
 
+    async fn insert_list_at_random_pos(&self, addrs: &[String]) {
+        for addr in addrs.iter() {
+            self.insert_at_random_pos(addr).await
+        }
+    }
+
     async fn insert_at_random_pos(&self, addr: impl Into<String>) {
         let pos = thread_rng().gen_range(0..=self.len());
         let mut index = self.index.write().await;
@@ -158,23 +164,19 @@ impl MembershipList {
         self.notify_waiters();
     }
 
-    // TODO::how to do this more efficiently
     pub async fn update_from_iter<I>(&self, iter: I) -> Result<()>
     where
         I: IntoIterator<Item = Member>,
     {
-        let mut new_inserts = vec![];
-        for member in iter {
-            let key = member.addr.clone();
-            if !self.members.contains_key(&key) {
-                new_inserts.push(key.clone());
-            }
-            self.members.insert(key, member);
-        }
+        let new_members = iter
+            .into_iter()
+            .filter_map(|m| {
+                let key = m.addr.clone();
+                self.members.insert(key.clone(), m).map(|_| key)
+            })
+            .collect::<Vec<_>>();
 
-        for member in &new_inserts {
-            self.index.insert_at_random_pos(member).await;
-        }
+        self.index.insert_list_at_random_pos(&new_members).await;
 
         self.notify_waiters();
 
