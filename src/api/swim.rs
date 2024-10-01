@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tokio::net::UdpSocket;
 use tokio::sync::broadcast::{self, Receiver};
+use tokio::task::JoinHandle;
 
 use crate::api::init_tracing;
 use crate::core::member::MembershipList;
@@ -41,10 +42,10 @@ impl SwimCluster {
         self.node.membership_list()
     }
 
-    pub async fn run(&self) {
+    pub async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
         init_tracing();
 
         tracing::info!("[{}] starting SwimNode...", self.node.addr());
-        self.node.run().await;
+        self.node.run().await
     }
 }
