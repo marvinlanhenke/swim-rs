@@ -147,15 +147,22 @@ impl MembershipList {
             .map(|entry| entry.value().incarnation)
     }
 
-    pub async fn add_member(&self, addr: impl Into<String>, incarnation: u64) {
+    /// Returns `true` if member already existed.
+    pub async fn add_member(&self, addr: impl Into<String>, incarnation: u64) -> bool {
         let addr = addr.into();
 
-        self.index.insert_at_random_pos(&addr).await;
+        let mut member_existed = true;
+        if !self.members.contains_key(&addr) {
+            self.index.insert_at_random_pos(&addr).await;
+            member_existed = false;
+        }
 
         let member = Member::new(&addr, NodeState::Alive, incarnation);
         self.members.insert(addr, member);
 
         self.notify_waiters();
+
+        member_existed
     }
 
     pub fn update_member(&self, member: Member) {
