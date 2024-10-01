@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 use snafu::location;
@@ -47,8 +48,13 @@ impl MembershipListIndex {
         self.pos.load(Ordering::SeqCst)
     }
 
-    fn advance(&self) -> usize {
+    async fn advance(&self) -> usize {
         let next_pos = (self.pos() + 1) % self.len();
+
+        if next_pos == 0 {
+            self.shuffle().await;
+        }
+
         self.pos.store(next_pos, Ordering::SeqCst);
         next_pos
     }
@@ -60,11 +66,15 @@ impl MembershipListIndex {
         self.len.store(index.len(), Ordering::SeqCst);
     }
 
-    // TODO: if pos == 0 we need to shuffle
     async fn current(&self) -> Option<String> {
         let pos = self.pos();
         let index = self.index.read().await;
         index.get(pos).cloned()
+    }
+
+    async fn shuffle(&self) {
+        let mut index = self.index.write().await;
+        index.shuffle(&mut thread_rng());
     }
 }
 
@@ -191,13 +201,13 @@ impl MembershipList {
         while selected_count < amount {
             if let Some(member_str) = self.index.current().await {
                 if member_str == self.addr {
-                    self.index.advance();
+                    self.index.advance().await;
                     continue;
                 }
 
                 if let Some(exclude) = exclude {
                     if exclude == member_str {
-                        self.index.advance();
+                        self.index.advance().await;
                         continue;
                     }
                 }
@@ -209,7 +219,7 @@ impl MembershipList {
                 selected_count += 1;
             }
 
-            self.index.advance();
+            self.index.advance().await;
         }
 
         selected_members
