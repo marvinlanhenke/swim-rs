@@ -110,7 +110,6 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
     }
 
     pub(crate) async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
-        self.dispatch_join_request().await;
         let dispatch_handle = self.dispatch().await;
         let detection_handle = self.failure_detection().await;
 
@@ -171,17 +170,6 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
                 await_and_log_error!(message_handler.dispatch_action(), "DispatchError");
             }
         })
-    }
-
-    async fn dispatch_join_request(&self) {
-        if self.membership_list.members().len() == 1 && !self.config.known_peers().is_empty() {
-            if let Some(target) = self.config().known_peers().first() {
-                await_and_log_error!(
-                    self.message_handler.send_join_req(target),
-                    "DispatchJoinRequestError"
-                )
-            }
-        }
     }
 }
 
