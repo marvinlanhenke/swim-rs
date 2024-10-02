@@ -55,8 +55,14 @@ async fn test_swim_cluster_node_join_events() {
     node3.run().await;
 
     let mut rx1 = node1.subscribe();
-    let mut _rx2 = node2.subscribe();
-    let mut _rx3 = node3.subscribe();
+    let mut rx2 = node2.subscribe();
+    let mut rx3 = node3.subscribe();
 
     assert_event!(Event::NodeJoined, rx1, 1000, |_| true);
+    assert_event!(Event::NodeJoined, rx2, 1000, |_| true);
+    assert_event!(Event::NodeJoined, rx3, 1000, |_| true);
+
+    assert_eq!(node1.membership_list().len(), 3);
+    assert_eq!(node2.membership_list().len(), 3);
+    assert_eq!(node3.membership_list().len(), 3);
 }
