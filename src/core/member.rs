@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -134,13 +133,6 @@ impl MembershipList {
 
     pub fn members(&self) -> &DashMap<String, Member> {
         &self.members
-    }
-
-    pub fn members_hashmap(&self) -> HashMap<String, Member> {
-        self.members
-            .iter()
-            .map(|x| (x.key().clone(), x.value().clone()))
-            .collect()
     }
 
     pub fn member_state(&self, addr: impl AsRef<str>) -> Option<Result<NodeState>> {
