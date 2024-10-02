@@ -624,6 +624,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_message_handle_ping_with_unknown_member() {
+        let message_handler = create_message_handler().await;
+        let gossip = message_handler
+            .disseminator
+            .get_gossip(message_handler.membership_list.len())
+            .await;
+
+        let action = Ping {
+            from: "NODE_C".to_string(),
+            requested_by: "".to_string(),
+            gossip: gossip.clone(),
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 3);
+        assert!(message_handler
+            .membership_list
+            .members()
+            .contains_key("NODE_C"));
+    }
+
+    #[tokio::test]
     async fn test_message_handle_ping() {
         let message_handler = create_message_handler().await;
         let gossip = message_handler
