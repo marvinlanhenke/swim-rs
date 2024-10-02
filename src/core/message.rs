@@ -188,22 +188,14 @@ impl<T: TransportLayer> MessageHandler<T> {
                 self.membership_list.update_member(Member::new(
                     &event.recovered,
                     NodeState::Alive,
-                    event.recovered_incarnation_no,
+                    incoming_incarnation,
                 ));
 
-                let recovered_event = Event::new_node_recovered(
-                    &self.addr,
-                    &event.recovered,
-                    event.recovered_incarnation_no,
+                emit_and_disseminate_event!(
+                    &self,
+                    Event::new_node_recovered(&self.addr, &event.recovered, incoming_incarnation),
+                    DisseminatorUpdate::NodesAlive
                 );
-
-                self.disseminator
-                    .push(DisseminatorUpdate::NodesAlive(recovered_event.clone()))
-                    .await;
-
-                if let Err(e) = self.tx.send(recovered_event) {
-                    tracing::debug!("SendEventError: {}", e.to_string());
-                }
             }
         }
     }
