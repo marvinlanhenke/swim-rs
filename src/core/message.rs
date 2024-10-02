@@ -18,6 +18,19 @@ use tokio::sync::broadcast::Sender;
 
 use super::{disseminate::Disseminator, member::MembershipList, transport::TransportLayer};
 
+macro_rules! emit_and_disseminate_event {
+    ($this:expr, $event:expr, $update:path) => {
+        let event = $event;
+        tracing::debug!("[{}] emitting {:#?}", $this.addr, event);
+
+        $this.disseminator.push($update(event.clone())).await;
+
+        if let Err(e) = $this.tx.send(event) {
+            tracing::debug!("SendEventError: {}", e.to_string());
+        }
+    };
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct MessageHandler<T: TransportLayer> {
     addr: String,
@@ -71,18 +84,12 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         self.handle_gossip(&action.gossip).await;
 
-        // TODO: extract into utils macro
         if self.membership_list.add_member(&action.from, 0).await {
-            let joined_event = Event::new_node_joined(&self.addr, &action.from);
-
-            tracing::debug!("[{}] emitting {:#?}", &self.addr, joined_event);
-
-            self.disseminator
-                .push(DisseminatorUpdate::NodesAlive(joined_event.clone()))
-                .await;
-            if let Err(e) = self.tx.send(joined_event) {
-                tracing::debug!("SendEventError: {}", e.to_string());
-            }
+            emit_and_disseminate_event!(
+                &self,
+                Event::new_node_joined(&self.addr, &action.from),
+                DisseminatorUpdate::NodesAlive
+            );
         }
 
         // TODO: refactor actions with ::new
@@ -175,23 +182,12 @@ impl<T: TransportLayer> MessageHandler<T> {
     }
 
     async fn handle_node_joined(&self, event: &NodeJoined) {
-        let node_exists = self
-            .membership_list
-            .members()
-            .contains_key(&event.new_member);
-
-        let joined_event = Event::new_node_joined(&self.addr, &event.new_member);
-
-        if let Err(e) = self.tx.send(joined_event.clone()) {
-            tracing::debug!("SendEventError: {}", e.to_string());
-        }
-
-        if !node_exists {
-            self.membership_list.add_member(&event.new_member, 0).await;
-
-            self.disseminator
-                .push(DisseminatorUpdate::NodesAlive(joined_event))
-                .await;
+        if self.membership_list.add_member(&event.new_member, 0).await {
+            emit_and_disseminate_event!(
+                &self,
+                Event::new_node_joined(&self.addr, &event.new_member),
+                DisseminatorUpdate::NodesAlive
+            );
         }
     }
 
