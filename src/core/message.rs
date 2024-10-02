@@ -226,29 +226,29 @@ impl<T: TransportLayer> MessageHandler<T> {
 
     async fn handle_node_recovered(&self, event: &NodeRecovered) {
         let incoming_incarnation = event.recovered_incarnation_no;
-        let current_incarnation = self
-            .membership_list
-            .member_incarnation(&event.recovered)
-            .unwrap_or(0);
-        if incoming_incarnation > current_incarnation {
-            self.membership_list.update_member(Member::new(
-                &event.recovered,
-                NodeState::Alive,
-                event.recovered_incarnation_no,
-            ));
 
-            let recovered_event = Event::new_node_recovered(
-                &self.addr,
-                &event.recovered,
-                event.recovered_incarnation_no,
-            );
+        if let Some(current_incarnation) = self.membership_list.member_incarnation(&event.recovered)
+        {
+            if incoming_incarnation > current_incarnation {
+                self.membership_list.update_member(Member::new(
+                    &event.recovered,
+                    NodeState::Alive,
+                    event.recovered_incarnation_no,
+                ));
 
-            self.disseminator
-                .push(DisseminatorUpdate::NodesAlive(recovered_event.clone()))
-                .await;
+                let recovered_event = Event::new_node_recovered(
+                    &self.addr,
+                    &event.recovered,
+                    event.recovered_incarnation_no,
+                );
 
-            if let Err(e) = self.tx.send(recovered_event) {
-                tracing::debug!("SendEventError: {}", e.to_string());
+                self.disseminator
+                    .push(DisseminatorUpdate::NodesAlive(recovered_event.clone()))
+                    .await;
+
+                if let Err(e) = self.tx.send(recovered_event) {
+                    tracing::debug!("SendEventError: {}", e.to_string());
+                }
             }
         }
     }
@@ -271,6 +271,8 @@ impl<T: TransportLayer> MessageHandler<T> {
             if let Err(e) = self.tx.send(recover_event) {
                 tracing::debug!("SendEventError: {}", e.to_string());
             }
+
+            return;
         }
 
         let incoming_incarnation = event.suspect_incarnation_no;
