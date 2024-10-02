@@ -21,7 +21,7 @@ impl SwimCluster {
     pub async fn try_new(addr: impl AsRef<str>, config: SwimConfig) -> Result<Self> {
         let socket = UdpSocket::bind(addr.as_ref()).await?;
         let (tx, _) = broadcast::channel::<Event>(32);
-        let node = Arc::new(SwimNode::try_new(socket, config, tx)?);
+        let node = Arc::new(SwimNode::try_new(socket, config, tx).await?);
 
         Ok(Self { node })
     }

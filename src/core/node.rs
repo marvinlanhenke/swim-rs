@@ -8,7 +8,8 @@ use tokio::{
 use crate::{
     api::config::{SwimConfig, DEFAULT_BUFFER_SIZE},
     error::Result,
-    pb::gossip::Event,
+    pb::{gossip::Event, Member},
+    NodeState,
 };
 
 use super::{
@@ -38,9 +39,14 @@ pub(crate) struct SwimNode<T: TransportLayer> {
 }
 
 impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
-    pub(crate) fn try_new(socket: T, config: SwimConfig, tx: Sender<Event>) -> Result<Self> {
+    pub(crate) async fn try_new(socket: T, config: SwimConfig, tx: Sender<Event>) -> Result<Self> {
         let addr = socket.local_addr()?;
         let membership_list = MembershipList::new(&addr, 0);
+        let iter = config
+            .known_peers()
+            .iter()
+            .map(|addr| Member::new(addr, NodeState::Alive, 0));
+        membership_list.update_from_iter(iter).await;
 
         Self::try_new_with_membership_list(socket, config, membership_list, tx)
     }

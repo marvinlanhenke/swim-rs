@@ -185,7 +185,7 @@ impl MembershipList {
         self.notify_waiters();
     }
 
-    pub async fn update_from_iter<I>(&self, iter: I) -> Result<()>
+    pub async fn update_from_iter<I>(&self, iter: I)
     where
         I: IntoIterator<Item = Member>,
     {
@@ -203,8 +203,6 @@ impl MembershipList {
         self.index.insert_list_at_random_pos(&new_members).await;
 
         self.notify_waiters();
-
-        Ok(())
     }
 
     pub(crate) async fn remove_member(&self, addr: impl AsRef<str>) -> bool {
@@ -370,7 +368,7 @@ mod tests {
         ];
         let addr = "NODE_A";
         let membership_list = MembershipList::new(addr, 0);
-        membership_list.update_from_iter(iter).await.unwrap();
+        membership_list.update_from_iter(iter).await;
 
         let members = membership_list.members();
 

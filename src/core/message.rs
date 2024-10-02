@@ -169,11 +169,14 @@ impl<T: TransportLayer> MessageHandler<T> {
         send_action(&*self.socket, &action, target).await
     }
 
+    // TODO: is infallible
     pub(crate) async fn handle_join_response(&self, action: &JoinResponse) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
         let iter = action.members.iter().map(|x| x.1.clone());
-        self.membership_list.update_from_iter(iter).await
+        self.membership_list.update_from_iter(iter).await;
+
+        Ok(())
     }
 
     pub(crate) async fn send_join_req(&self, target: impl AsRef<str>) -> Result<()> {
