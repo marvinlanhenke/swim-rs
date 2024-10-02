@@ -160,12 +160,12 @@ impl MembershipList {
             .map(|entry| entry.value().incarnation)
     }
 
-    // Adds member only if not already exists. Returns true if already exists, otherwise false.
+    // Adds member only if not already exists. Returns true if member has been added.
     pub async fn add_member(&self, addr: impl Into<String>, incarnation: u64) -> bool {
         let addr = addr.into();
 
         if self.members.contains_key(&addr) {
-            return true;
+            return false;
         }
 
         self.index.insert_at_random_pos(&addr).await;
@@ -173,7 +173,7 @@ impl MembershipList {
         self.members.insert(addr, member);
 
         self.notify_waiters();
-        false
+        true
     }
 
     pub fn update_member(&self, member: Member) {
