@@ -184,3 +184,20 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::broadcast;
+
+    use crate::{api::config::SwimConfig, core::node::SwimNode, test_utils::mocks::MockUdpSocket};
+
+    #[tokio::test]
+    async fn test_node_init_with_known_peers() {
+        let socket = MockUdpSocket::new();
+        let config = SwimConfig::builder().with_known_peers(&["NODE_B"]).build();
+        let (tx, _) = broadcast::channel(32);
+
+        let node = SwimNode::try_new(socket, config, tx).await.unwrap();
+        assert_eq!(node.membership_list().len(), 2);
+    }
+}
