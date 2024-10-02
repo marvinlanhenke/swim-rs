@@ -1,16 +1,15 @@
 use std::{
-    collections::{binary_heap::PeekMut, BinaryHeap, HashSet},
+    collections::{BinaryHeap, HashSet},
     hash::Hash,
     sync::Arc,
 };
 
+use dashmap::DashSet;
 use prost::Message;
-use tokio::sync::{RwLock, RwLockWriteGuard};
+use tokio::sync::RwLock;
 
 use crate::{pb::Gossip, Event};
 
-// TODO: can we keep the hashvalue
-// in order to avoid cloning the complete struct for `seen`?
 #[derive(Clone, Debug)]
 struct GossipHeapEntry {
     gossip: Gossip,
@@ -56,7 +55,51 @@ impl PartialOrd for GossipHeapEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+struct MinHeapSet<T: Hash + Eq + Ord + Clone> {
+    set: DashSet<T>,
+    heap: Arc<RwLock<BinaryHeap<T>>>,
+}
+
+impl<T: Hash + Eq + Ord + Clone> MinHeapSet<T> {
+    fn new() -> Self {
+        Self {
+            set: DashSet::new(),
+            heap: Arc::new(RwLock::new(BinaryHeap::new())),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    async fn push(&self, item: T) -> bool {
+        if self.set.contains(&item) {
+            return false;
+        }
+
+        let mut heap = self.heap.write().await;
+        heap.push(item.clone());
+        self.set.insert(item);
+
+        true
+    }
+
+    async fn pop(&self) -> Option<T> {
+        let mut heap = self.heap.write().await;
+
+        heap.pop().map(|x| {
+            self.set.remove(&x);
+            x
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) enum DisseminatorUpdate {
     NodesAlive(Event),
     NodesDeceased(Event),
@@ -64,8 +107,8 @@ pub(crate) enum DisseminatorUpdate {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Disseminator {
-    nodes_alive: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
-    nodes_deceased: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
+    nodes_alive: MinHeapSet<GossipHeapEntry>,
+    nodes_deceased: MinHeapSet<GossipHeapEntry>,
     max_selected: usize,
     max_size: usize,
     max_send_constant: usize,
@@ -74,8 +117,8 @@ pub(crate) struct Disseminator {
 impl Disseminator {
     pub(crate) fn new(max_selected: usize, max_size: usize, max_send_constant: usize) -> Self {
         Self {
-            nodes_alive: Arc::new(RwLock::new(BinaryHeap::new())),
-            nodes_deceased: Arc::new(RwLock::new(BinaryHeap::new())),
+            nodes_alive: MinHeapSet::new(),
+            nodes_deceased: MinHeapSet::new(),
             max_selected,
             max_size,
             max_send_constant,
@@ -85,14 +128,12 @@ impl Disseminator {
     pub(crate) async fn push(&self, update: DisseminatorUpdate) {
         match update {
             DisseminatorUpdate::NodesAlive(event) => {
-                let mut nodes_alive = self.nodes_alive.write().await;
                 let item = GossipHeapEntry::new(Gossip { event: Some(event) });
-                nodes_alive.push(item);
+                self.nodes_alive.push(item).await;
             }
             DisseminatorUpdate::NodesDeceased(event) => {
-                let mut nodes_deceased = self.nodes_deceased.write().await;
                 let item = GossipHeapEntry::new(Gossip { event: Some(event) });
-                nodes_deceased.push(item);
+                self.nodes_deceased.push(item).await;
             }
         }
     }
@@ -105,16 +146,13 @@ impl Disseminator {
 
         let mut gossip = Vec::new();
 
-        let mut nodes_alive = self.nodes_alive.write().await;
-        let mut nodes_deceased = self.nodes_deceased.write().await;
-
         let mut current_size = 0;
         let mut nodes_alive_selected = 0;
         let mut nodes_deceased_selected = 0;
         let mut seen = HashSet::new();
 
         loop {
-            if (nodes_alive.is_empty() && nodes_deceased.is_empty())
+            if (self.nodes_alive.is_empty() && self.nodes_deceased.is_empty())
                 || (nodes_alive_selected >= max_selected_alive
                     && nodes_deceased_selected >= max_selected_deceased)
             {
@@ -122,24 +160,26 @@ impl Disseminator {
             }
 
             let made_progress_alive = Self::process_heap_entry(
-                &mut nodes_alive,
+                &self.nodes_alive,
                 &mut gossip,
                 &mut seen,
                 &mut nodes_alive_selected,
                 &mut current_size,
                 self.max_size,
                 max_send,
-            );
+            )
+            .await;
 
             let made_progress_deceased = Self::process_heap_entry(
-                &mut nodes_deceased,
+                &self.nodes_deceased,
                 &mut gossip,
                 &mut seen,
                 &mut nodes_deceased_selected,
                 &mut current_size,
                 self.max_size,
                 max_send,
-            );
+            )
+            .await;
 
             if !made_progress_alive && !made_progress_deceased {
                 break;
@@ -149,8 +189,8 @@ impl Disseminator {
         gossip
     }
 
-    fn process_heap_entry(
-        heap: &mut RwLockWriteGuard<BinaryHeap<GossipHeapEntry>>,
+    async fn process_heap_entry(
+        heap: &MinHeapSet<GossipHeapEntry>,
         gossip: &mut Vec<Gossip>,
         seen: &mut HashSet<GossipHeapEntry>,
         num_selected: &mut usize,
@@ -158,13 +198,15 @@ impl Disseminator {
         max_size: usize,
         max_send: usize,
     ) -> bool {
-        match heap.peek_mut() {
+        match heap.pop().await {
             Some(mut entry) => {
                 if *current_size + entry.size > max_size {
+                    heap.push(entry).await;
                     return false;
                 }
 
                 if seen.contains(&entry) {
+                    heap.push(entry).await;
                     return false;
                 }
 
@@ -175,10 +217,8 @@ impl Disseminator {
                 *num_selected += 1;
                 seen.insert(entry.clone());
 
-                if entry.num_send >= max_send {
-                    PeekMut::pop(entry);
-                } else {
-                    drop(entry);
+                if entry.num_send < max_send {
+                    heap.push(entry).await;
                 }
 
                 true
@@ -195,31 +235,45 @@ mod tests {
     use super::{Disseminator, DisseminatorUpdate};
 
     #[tokio::test]
-    async fn test_disseminator_pop_both_no_space_left() {
-        let disseminator = Disseminator::new(6, 32, 1);
-        let event1 = Event::new_node_joined("NODE_A", "NODE_B");
-        let event2 = Event::new_node_joined("NODE_C", "NODE_D");
-        let event3 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
-        let event4 = Event::new_node_deceased("NODE_C", "NODE_D", 0);
-        let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
-        let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
-        let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
-        let update4 = DisseminatorUpdate::NodesDeceased(event4.clone());
-        disseminator.push(update1).await;
-        disseminator.push(update2).await;
-        disseminator.push(update3).await;
-        disseminator.push(update4).await;
+    async fn test_disseminator_unique_entries() {
+        let disseminator = Disseminator::new(6, 128, 1);
+        let updates = [
+            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B")),
+            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B")),
+            DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_A", "NODE_B", 0)),
+            DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_A", "NODE_B", 0)),
+        ];
+
+        for update in updates {
+            disseminator.push(update).await;
+        }
 
         let result = disseminator.get_gossip(0).await;
+        assert_eq!(result.len(), 2);
+    }
 
-        assert_eq!(
-            result,
-            vec![Gossip {
-                event: Some(event1)
-            },],
-        );
-        assert_eq!(disseminator.nodes_alive.read().await.len(), 1);
-        assert_eq!(disseminator.nodes_deceased.read().await.len(), 2);
+    #[tokio::test]
+    async fn test_disseminator_pop_both_no_space_left() {
+        let disseminator = Disseminator::new(6, 32, 1);
+        let updates = [
+            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B")),
+            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_C", "NODE_D")),
+            DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_A", "NODE_B", 0)),
+            DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_C", "NODE_D", 0)),
+        ];
+
+        for update in updates {
+            disseminator.push(update).await;
+        }
+
+        let result = disseminator.get_gossip(0).await;
+        let expected = vec![Gossip {
+            event: Some(Event::new_node_joined("NODE_A", "NODE_B")),
+        }];
+
+        assert_eq!(result, expected);
+        assert_eq!(disseminator.nodes_alive.len(), 1);
+        assert_eq!(disseminator.nodes_deceased.len(), 2);
     }
 
     #[tokio::test]
@@ -229,14 +283,16 @@ mod tests {
         let event2 = Event::new_node_joined("NODE_C", "NODE_D");
         let event3 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
         let event4 = Event::new_node_deceased("NODE_C", "NODE_D", 0);
-        let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
-        let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
-        let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
-        let update4 = DisseminatorUpdate::NodesDeceased(event4.clone());
-        disseminator.push(update1).await;
-        disseminator.push(update2).await;
-        disseminator.push(update3).await;
-        disseminator.push(update4).await;
+        let updates = [
+            DisseminatorUpdate::NodesAlive(event1.clone()),
+            DisseminatorUpdate::NodesAlive(event2.clone()),
+            DisseminatorUpdate::NodesDeceased(event3.clone()),
+            DisseminatorUpdate::NodesDeceased(event4.clone()),
+        ];
+
+        for update in updates {
+            disseminator.push(update).await;
+        }
 
         let result = disseminator.get_gossip(0).await;
 
@@ -265,12 +321,15 @@ mod tests {
         let event1 = Event::new_node_joined("NODE_A", "NODE_B");
         let event2 = Event::new_node_joined("NODE_C", "NODE_D");
         let event3 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
-        let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
-        let update2 = DisseminatorUpdate::NodesAlive(event2.clone());
-        let update3 = DisseminatorUpdate::NodesDeceased(event3.clone());
-        disseminator.push(update1).await;
-        disseminator.push(update2).await;
-        disseminator.push(update3).await;
+        let updates = [
+            DisseminatorUpdate::NodesAlive(event1.clone()),
+            DisseminatorUpdate::NodesAlive(event2.clone()),
+            DisseminatorUpdate::NodesDeceased(event3.clone()),
+        ];
+
+        for update in updates {
+            disseminator.push(update).await;
+        }
 
         let result = disseminator.get_gossip(3).await;
 
@@ -295,15 +354,19 @@ mod tests {
         let disseminator = Disseminator::new(6, 128, 0);
         let event1 = Event::new_node_joined("NODE_A", "NODE_B");
         let event2 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
-        let update1 = DisseminatorUpdate::NodesAlive(event1.clone());
-        let update2 = DisseminatorUpdate::NodesDeceased(event2.clone());
-        disseminator.push(update1).await;
-        disseminator.push(update2).await;
+        let updates = [
+            DisseminatorUpdate::NodesAlive(event1.clone()),
+            DisseminatorUpdate::NodesAlive(event2.clone()),
+        ];
+
+        for update in updates {
+            disseminator.push(update).await;
+        }
 
         let result = disseminator.get_gossip(0).await;
 
-        assert_eq!(disseminator.nodes_alive.read().await.len(), 0);
-        assert_eq!(disseminator.nodes_deceased.read().await.len(), 0);
+        assert_eq!(disseminator.nodes_alive.len(), 0);
+        assert_eq!(disseminator.nodes_deceased.len(), 0);
         assert_eq!(
             result,
             vec![
@@ -327,7 +390,7 @@ mod tests {
             DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_A", "NODE_B", 0));
         disseminator.push(update).await;
 
-        assert_eq!(disseminator.nodes_alive.read().await.len(), 1);
-        assert_eq!(disseminator.nodes_deceased.read().await.len(), 1);
+        assert_eq!(disseminator.nodes_alive.len(), 1);
+        assert_eq!(disseminator.nodes_deceased.len(), 1);
     }
 }
