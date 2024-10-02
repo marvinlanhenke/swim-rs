@@ -221,56 +221,49 @@ impl<T: TransportLayer> MessageHandler<T> {
     }
 
     async fn handle_node_suspected(&self, event: &NodeSuspected) {
-        if event.suspect == self.addr {
-            let incarnation = event.suspect_incarnation_no + 1;
-            let recover_event = Event::new_node_recovered(&self.addr, &self.addr, incarnation);
+        let is_suspected = event.suspect == self.addr;
 
-            self.membership_list.update_member(Member::new(
-                &self.addr,
-                NodeState::Alive,
-                incarnation,
-            ));
+        match is_suspected {
+            true => {
+                let incarnation = event.suspect_incarnation_no + 1;
 
-            self.disseminator
-                .push(DisseminatorUpdate::NodesAlive(recover_event.clone()))
-                .await;
-
-            if let Err(e) = self.tx.send(recover_event) {
-                tracing::debug!("SendEventError: {}", e.to_string());
+                emit_and_disseminate_event!(
+                    &self,
+                    Event::new_node_recovered(&self.addr, &self.addr, incarnation),
+                    DisseminatorUpdate::NodesAlive
+                );
             }
+            false => {
+                let incoming_incarnation = event.suspect_incarnation_no;
 
-            return;
-        }
+                if let Some(current_incarnation) =
+                    self.membership_list.member_incarnation(&event.suspect)
+                {
+                    let was_alive = matches!(
+                        self.membership_list.member_state(&event.suspect),
+                        Some(Ok(NodeState::Alive))
+                    );
+                    let should_update = (was_alive && incoming_incarnation >= current_incarnation)
+                        || (!was_alive && incoming_incarnation > current_incarnation);
 
-        let incoming_incarnation = event.suspect_incarnation_no;
-        let current_incarnation = self
-            .membership_list
-            .member_incarnation(&event.suspect)
-            .unwrap_or(0);
+                    if should_update {
+                        self.membership_list.update_member(Member::new(
+                            &event.suspect,
+                            NodeState::Suspected,
+                            incoming_incarnation,
+                        ));
 
-        let was_alive = matches!(
-            self.membership_list.member_state(&event.suspect),
-            Some(Ok(NodeState::Alive))
-        );
-        let should_update = (was_alive && incoming_incarnation >= current_incarnation)
-            || (!was_alive && incoming_incarnation > current_incarnation);
-
-        if should_update {
-            self.membership_list.update_member(Member::new(
-                &event.suspect,
-                NodeState::Suspected,
-                incoming_incarnation,
-            ));
-
-            let suspect_event =
-                Event::new_node_suspected(&self.addr, &event.suspect, incoming_incarnation);
-
-            self.disseminator
-                .push(DisseminatorUpdate::NodesAlive(suspect_event.clone()))
-                .await;
-
-            if let Err(e) = self.tx.send(suspect_event) {
-                tracing::debug!("SendEventError: {}", e.to_string());
+                        emit_and_disseminate_event!(
+                            &self,
+                            Event::new_node_suspected(
+                                &self.addr,
+                                &event.suspect,
+                                incoming_incarnation
+                            ),
+                            DisseminatorUpdate::NodesAlive
+                        );
+                    }
+                }
             }
         }
     }
