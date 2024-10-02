@@ -1,17 +1,18 @@
 use std::{
     collections::{binary_heap::PeekMut, BinaryHeap, HashSet},
+    hash::Hash,
     sync::Arc,
 };
 
 use prost::Message;
 use tokio::sync::{RwLock, RwLockWriteGuard};
-use uuid::Uuid;
 
 use crate::{pb::Gossip, Event};
 
-#[derive(Debug)]
+// TODO: can we keep the hashvalue
+// in order to avoid cloning the complete struct for `seen`?
+#[derive(Clone, Debug)]
 struct GossipHeapEntry {
-    id: Uuid,
     gossip: Gossip,
     num_send: usize,
     size: usize,
@@ -19,11 +20,9 @@ struct GossipHeapEntry {
 
 impl GossipHeapEntry {
     fn new(gossip: Gossip) -> Self {
-        let id = Uuid::new_v4();
         let size = gossip.encoded_len();
 
         Self {
-            id,
             gossip,
             num_send: 0,
             size,
@@ -38,6 +37,12 @@ impl PartialEq for GossipHeapEntry {
 }
 
 impl Eq for GossipHeapEntry {}
+
+impl Hash for GossipHeapEntry {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.gossip.hash(state);
+    }
+}
 
 impl Ord for GossipHeapEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -147,7 +152,7 @@ impl Disseminator {
     fn process_heap_entry(
         heap: &mut RwLockWriteGuard<BinaryHeap<GossipHeapEntry>>,
         gossip: &mut Vec<Gossip>,
-        seen: &mut HashSet<Uuid>,
+        seen: &mut HashSet<GossipHeapEntry>,
         num_selected: &mut usize,
         current_size: &mut usize,
         max_size: usize,
@@ -159,7 +164,7 @@ impl Disseminator {
                     return false;
                 }
 
-                if seen.contains(&entry.id) {
+                if seen.contains(&entry) {
                     return false;
                 }
 
@@ -168,7 +173,7 @@ impl Disseminator {
                 entry.num_send += 1;
                 *current_size += entry.size;
                 *num_selected += 1;
-                seen.insert(entry.id);
+                seen.insert(entry.clone());
 
                 if entry.num_send >= max_send {
                     PeekMut::pop(entry);

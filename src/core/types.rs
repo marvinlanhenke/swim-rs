@@ -1,4 +1,6 @@
-use crate::{Event, NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected};
+use std::hash::Hash;
+
+use crate::{pb::Gossip, Event, NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected};
 
 impl Event {
     pub(crate) fn new_node_joined(from: impl Into<String>, new_member: impl Into<String>) -> Self {
@@ -42,5 +44,31 @@ impl Event {
             deceased: deceased.into(),
             deceased_incarnation_no,
         })
+    }
+}
+
+impl Hash for Gossip {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match &self.event {
+            Some(Event::NodeJoined(e)) => {
+                0u8.hash(state);
+                e.hash(state);
+            }
+            Some(Event::NodeSuspected(e)) => {
+                1u8.hash(state);
+                e.hash(state);
+            }
+            Some(Event::NodeRecovered(e)) => {
+                2u8.hash(state);
+                e.hash(state);
+            }
+            Some(Event::NodeDeceased(e)) => {
+                3u8.hash(state);
+                e.hash(state);
+            }
+            None => {
+                4u8.hash(state);
+            }
+        }
     }
 }
