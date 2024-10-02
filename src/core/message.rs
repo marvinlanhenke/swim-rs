@@ -6,7 +6,7 @@ use crate::{
     error::{Error, Result},
     pb::{
         gossip::{NodeJoined, NodeRecovered, NodeSuspected},
-        swim_message::{self, Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
+        swim_message::{self, Ack, Action, Ping, PingReq},
         Gossip, Member, NodeState, SwimMessage,
     },
     Event, NodeDeceased,
@@ -58,8 +58,6 @@ impl<T: TransportLayer> MessageHandler<T> {
                 Ping(v) => self.handle_ping(&v).await,
                 PingReq(v) => self.handle_ping_req(&v).await,
                 Ack(v) => self.handle_ack(&v).await,
-                JoinRequest(v) => self.handle_join_request(&v).await,
-                JoinResponse(v) => self.handle_join_response(&v).await,
             },
             None => Err(Error::InvalidData {
                 message: "Message must contain an 'action'".to_string(),
@@ -158,38 +156,6 @@ impl<T: TransportLayer> MessageHandler<T> {
                 send_action(&*self.socket, &Action::Ack(forwarded_ack), target).await?
             }
         };
-
-        Ok(())
-    }
-
-    pub(crate) async fn handle_join_request(&self, action: &JoinRequest) -> Result<()> {
-        tracing::debug!("[{}] handling {action:?}", &self.addr);
-
-        let target = &action.from;
-        self.membership_list.add_member(target, 0).await;
-
-        let event = Event::new_node_joined(&self.addr, target);
-
-        self.disseminator
-            .push(DisseminatorUpdate::NodesAlive(event.clone()))
-            .await;
-
-        if let Err(e) = self.tx.send(event) {
-            tracing::debug!("SendEventError: {}", e.to_string());
-        }
-
-        let members = self.membership_list.members_hashmap();
-        let action = Action::JoinResponse(JoinResponse { members });
-
-        send_action(&*self.socket, &action, target).await
-    }
-
-    // TODO: is infallible
-    pub(crate) async fn handle_join_response(&self, action: &JoinResponse) -> Result<()> {
-        tracing::debug!("[{}] handling {action:?}", &self.addr);
-
-        let iter = action.members.iter().map(|x| x.1.clone());
-        self.membership_list.update_from_iter(iter).await;
 
         Ok(())
     }
@@ -345,7 +311,7 @@ mod tests {
         api::config::{DEFAULT_BUFFER_SIZE, DEFAULT_GOSSIP_MAX_MESSAGES},
         core::{disseminate::Disseminator, member::MembershipList, message::MessageHandler},
         pb::{
-            swim_message::{Ack, Action, JoinRequest, JoinResponse, Ping, PingReq},
+            swim_message::{Ack, Action, Ping, PingReq},
             Gossip, Member, NodeState, SwimMessage,
         },
         test_utils::mocks::MockUdpSocket,
@@ -494,57 +460,6 @@ mod tests {
             .membership_list
             .members()
             .contains_key("NODE_C"));
-    }
-
-    #[tokio::test]
-    async fn test_message_handle_join_response() {
-        let message_handler = create_message_handler().await;
-
-        let mut members = message_handler.membership_list.members_hashmap();
-        members.insert(
-            "NODE_C".to_string(),
-            Member::new("NODE_C", NodeState::Alive, 0),
-        );
-        members.insert(
-            "NODE_D".to_string(),
-            Member::new("NODE_D", NodeState::Alive, 0),
-        );
-
-        let action = JoinResponse { members };
-
-        message_handler.handle_join_response(&action).await.unwrap();
-
-        let result = message_handler.membership_list.members();
-
-        assert_eq!(result.len(), 4);
-        assert!(result.contains_key("NODE_C"));
-        assert!(result.contains_key("NODE_D"));
-    }
-
-    #[tokio::test]
-    async fn test_message_handle_join_request() {
-        let message_handler = create_message_handler().await;
-
-        let action = JoinRequest {
-            from: "NODE_C".to_string(),
-        };
-
-        message_handler.handle_join_request(&action).await.unwrap();
-
-        assert!(message_handler
-            .membership_list
-            .members()
-            .contains_key("NODE_C"));
-
-        let result = &message_handler.socket.transmitted().await[0];
-
-        let expected = SwimMessage {
-            action: Some(Action::JoinResponse(JoinResponse {
-                members: message_handler.membership_list.members_hashmap(),
-            })),
-        };
-
-        assert_eq!(result, &expected);
     }
 
     #[tokio::test]

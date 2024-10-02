@@ -66,19 +66,9 @@ message SwimMessage {
     repeated Gossip gossip = 3;
   }
 
-  message JoinRequest {
-    string from = 1;
-  }
-
-  message JoinResponse {
-    map<string, Member> members = 1;
-  }
-
   oneof action {
     Ping ping = 1;
     PingReq ping_req = 2;
     Ack ack = 3;
-    JoinRequest join_request = 4;
-    JoinResponse join_response = 5;
   }
 }
