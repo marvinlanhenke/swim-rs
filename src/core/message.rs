@@ -69,23 +69,26 @@ impl<T: TransportLayer> MessageHandler<T> {
     }
 
     pub(crate) async fn handle_ping(&self, action: &Ping) -> Result<()> {
-        tracing::debug!("[{}] handling {action:?}", &self.addr);
+        tracing::debug!("[{}] handling {action:#?}", &self.addr);
 
         self.handle_gossip(&action.gossip).await;
 
+        self.membership_list.add_member(&action.from, 0).await;
+
+        // TODO: refactor actions with ::new
         let from = self.addr.clone();
         let forward_to = action.requested_by.clone();
         let gossip = self
             .disseminator
             .get_gossip(self.membership_list.len())
             .await;
-
         let message = Action::Ack(Ack {
             from,
             forward_to,
             gossip,
         });
 
+        // TODO: refactor into Self::get_ack_target
         // We check if the PING was `requested_by` a PING_REQ,
         // if it was we send the ACK to the original issuer.
         let target = match action.requested_by.is_empty() {
@@ -175,19 +178,6 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         let iter = action.members.iter().map(|x| x.1.clone());
         self.membership_list.update_from_iter(iter).await;
-
-        Ok(())
-    }
-
-    pub(crate) async fn send_join_req(&self, target: impl AsRef<str>) -> Result<()> {
-        let target = target.as_ref();
-
-        let action = Action::JoinRequest(JoinRequest {
-            from: self.addr.clone(),
-        });
-
-        tracing::debug!("[{}] sending JOIN_REQ to {}", &self.addr, target);
-        send_action(&*self.socket, &action, target).await?;
 
         Ok(())
     }
@@ -492,23 +482,6 @@ mod tests {
             .membership_list
             .members()
             .contains_key("NODE_C"));
-    }
-
-    #[tokio::test]
-    async fn test_message_send_join_request() {
-        let message_handler = create_message_handler().await;
-
-        message_handler.send_join_req("NODE_B").await.unwrap();
-
-        let result = &message_handler.socket.transmitted().await[0];
-
-        let expected = SwimMessage {
-            action: Some(Action::JoinRequest(JoinRequest {
-                from: "NODE_A".to_string(),
-            })),
-        };
-
-        assert_eq!(result, &expected);
     }
 
     #[tokio::test]
