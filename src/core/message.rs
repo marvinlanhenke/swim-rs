@@ -73,7 +73,16 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         self.handle_gossip(&action.gossip).await;
 
-        self.membership_list.add_member(&action.from, 0).await;
+        // TODO: extract into utils macro
+        if self.membership_list.add_member(&action.from, 0).await {
+            let joined_event = Event::new_node_joined(&self.addr, &action.from);
+            self.disseminator
+                .push(DisseminatorUpdate::NodesAlive(joined_event.clone()))
+                .await;
+            if let Err(e) = self.tx.send(joined_event) {
+                tracing::debug!("SendEventError: {}", e.to_string());
+            }
+        }
 
         // TODO: refactor actions with ::new
         let from = self.addr.clone();
