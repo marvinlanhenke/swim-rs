@@ -3,6 +3,20 @@ use crate::pb::swim_message::Action;
 
 use super::transport::TransportLayer;
 
+#[macro_export]
+macro_rules! emit_and_disseminate_event {
+    ($this:expr, $event:expr, $update:path) => {
+        let event = $event;
+        tracing::debug!("[{}] emitting {:#?}", $this.addr, event);
+
+        $this.disseminator.push($update(event.clone())).await;
+
+        if let Err(e) = $this.tx.send(event) {
+            tracing::debug!("SendEventError: {}", e.to_string());
+        }
+    };
+}
+
 pub(crate) async fn send_action<T: TransportLayer>(
     socket: &T,
     action: &Action,

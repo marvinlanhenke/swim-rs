@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     api::config::DEFAULT_BUFFER_SIZE,
     core::{disseminate::DisseminatorUpdate, utils::send_action},
+    emit_and_disseminate_event,
     error::{Error, Result},
     pb::{
         gossip::{NodeJoined, NodeRecovered, NodeSuspected},
@@ -17,19 +18,6 @@ use snafu::location;
 use tokio::sync::broadcast::Sender;
 
 use super::{disseminate::Disseminator, member::MembershipList, transport::TransportLayer};
-
-macro_rules! emit_and_disseminate_event {
-    ($this:expr, $event:expr, $update:path) => {
-        let event = $event;
-        tracing::debug!("[{}] emitting {:#?}", $this.addr, event);
-
-        $this.disseminator.push($update(event.clone())).await;
-
-        if let Err(e) = $this.tx.send(event) {
-            tracing::debug!("SendEventError: {}", e.to_string());
-        }
-    };
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct MessageHandler<T: TransportLayer> {
