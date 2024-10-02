@@ -76,6 +76,9 @@ impl<T: TransportLayer> MessageHandler<T> {
         // TODO: extract into utils macro
         if self.membership_list.add_member(&action.from, 0).await {
             let joined_event = Event::new_node_joined(&self.addr, &action.from);
+
+            tracing::debug!("[{}] emitting {:#?}", &self.addr, joined_event);
+
             self.disseminator
                 .push(DisseminatorUpdate::NodesAlive(joined_event.clone()))
                 .await;
@@ -192,9 +195,9 @@ impl<T: TransportLayer> MessageHandler<T> {
     }
 
     async fn handle_gossip(&self, gossip: &[Gossip]) {
-        tracing::debug!("[{}] handling {:?}", &self.addr, gossip);
         for message in gossip {
             if let Some(event) = &message.event {
+                tracing::debug!("[{}] handling gossip {:#?}", &self.addr, event);
                 match event {
                     Event::NodeJoined(evt) => self.handle_node_joined(evt).await,
                     Event::NodeRecovered(evt) => self.handle_node_recovered(evt).await,
