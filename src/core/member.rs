@@ -75,8 +75,14 @@ impl MembershipListIndex {
 
     async fn remove(&self, addr: impl AsRef<str>) {
         let mut index = self.index.write().await;
+
         if let Some(pos) = index.iter().position(|x| x == addr.as_ref()) {
             index.remove(pos);
+            self.len.store(index.len(), Ordering::SeqCst);
+
+            if self.pos() == self.len() {
+                self.pos.fetch_sub(1, Ordering::SeqCst);
+            }
         }
     }
 
@@ -187,7 +193,10 @@ impl MembershipList {
             .into_iter()
             .filter_map(|m| {
                 let key = m.addr.clone();
-                self.members.insert(key.clone(), m).map(|_| key)
+                match self.members.insert(key.clone(), m) {
+                    Some(_) => None,
+                    None => Some(key),
+                }
             })
             .collect::<Vec<_>>();
 
@@ -201,7 +210,7 @@ impl MembershipList {
     pub(crate) async fn remove_member(&self, addr: impl AsRef<str>) -> bool {
         let addr = addr.as_ref();
         self.index.remove(addr).await;
-        self.members().remove(addr).is_some()
+        self.members.remove(addr).is_some()
     }
 
     pub(crate) async fn get_member_list(
