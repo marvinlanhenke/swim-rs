@@ -46,9 +46,9 @@ async fn create_single_node(ms: u64, known_peers: &[&str]) -> SwimCluster {
 
 #[tokio::test]
 async fn test_swim_cluster_node_suspect_events() {
-    let node1 = create_single_node(200, &[]).await;
-    let node2 = create_single_node(200, &[node1.addr()]).await;
-    let node3 = create_single_node(200, &[node1.addr()]).await;
+    let node1 = create_single_node(10, &[]).await;
+    let node2 = create_single_node(10, &[node1.addr()]).await;
+    let node3 = create_single_node(10, &[node1.addr()]).await;
 
     node1.run().await;
     node2.run().await;

@@ -8,7 +8,7 @@ use crate::core::utils::send_action;
 use crate::error::Result;
 use crate::pb::swim_message::{Action, Ping, PingReq};
 use crate::pb::{Member, NodeState};
-use crate::Event;
+use crate::{emit_and_disseminate_event, Event};
 
 use super::disseminate::{Disseminator, DisseminatorUpdate};
 use super::member::MembershipList;
@@ -127,15 +127,11 @@ impl<T: TransportLayer> FailureDetector<T> {
             incarnation,
         ));
 
-        let event = Event::new_node_suspected(&self.addr, &suspect, incarnation);
-
-        self.disseminator
-            .push(DisseminatorUpdate::NodesAlive(event.clone()))
-            .await;
-
-        if let Err(e) = self.tx.send(event) {
-            tracing::debug!("SendEventError: {}", e.to_string());
-        }
+        emit_and_disseminate_event!(
+            &self,
+            Event::new_node_suspected(&self.addr, &suspect, incarnation),
+            DisseminatorUpdate::NodesAlive
+        );
 
         let probe_group = self
             .membership_list
@@ -143,6 +139,12 @@ impl<T: TransportLayer> FailureDetector<T> {
             .await;
 
         for probe_member in &probe_group {
+            tracing::debug!(
+                "[{}] sending PING_REQ to {}",
+                &self.addr,
+                &probe_member.addr
+            );
+
             let gossip = self
                 .disseminator
                 .get_gossip(self.membership_list.len())
@@ -153,17 +155,12 @@ impl<T: TransportLayer> FailureDetector<T> {
                 gossip,
             });
 
-            tracing::debug!(
-                "[{}] sending PING_REQ to {}",
-                &self.addr,
-                &probe_member.addr
-            );
             send_action(&*self.socket, &action, &probe_member.addr).await?;
         }
 
         let mut state = self.state.write().await;
         *state = FailureDetectorState::WaitingForAck {
-            target: suspect.clone(),
+            target: suspect,
             ack_type: AckType::PingReqAck,
             incarnation,
         };
