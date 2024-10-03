@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 use crate::api::config::SwimConfig;
 use crate::core::utils::send_action;
 use crate::error::Result;
-use crate::pb::swim_message::{Action, Ping, PingReq};
+use crate::pb::swim_message::Action;
 use crate::pb::{Member, NodeState};
 use crate::{emit_and_disseminate_event, Event};
 
@@ -85,11 +85,7 @@ impl<T: TransportLayer> FailureDetector<T> {
             .get_gossip(self.membership_list.len())
             .await;
 
-        let action = Action::Ping(Ping {
-            from: self.addr.clone(),
-            requested_by: "".to_string(),
-            gossip,
-        });
+        let action = Action::new_ping(&self.addr, "", gossip);
 
         if let Some(member) = self.membership_list.get_member_list(1, None).await.first() {
             let target = member.addr.clone();
@@ -149,11 +145,7 @@ impl<T: TransportLayer> FailureDetector<T> {
                 .disseminator
                 .get_gossip(self.membership_list.len())
                 .await;
-            let action = Action::PingReq(PingReq {
-                from: self.addr.clone(),
-                suspect: suspect.clone(),
-                gossip,
-            });
+            let action = Action::new_ping_req(&self.addr, &suspect, gossip);
 
             send_action(&*self.socket, &action, &probe_member.addr).await?;
         }
@@ -271,10 +263,7 @@ mod tests {
             disseminate::Disseminator,
             member::MembershipList,
         },
-        pb::{
-            swim_message::{Action, Ping},
-            Member, NodeState, SwimMessage,
-        },
+        pb::{swim_message::Action, Member, NodeState, SwimMessage},
         test_utils::mocks::MockUdpSocket,
     };
 
@@ -448,11 +437,7 @@ mod tests {
 
         let result = &failure_detector.socket.transmitted().await[0];
         let expected = SwimMessage {
-            action: Some(Action::Ping(Ping {
-                from: "NODE_A".to_string(),
-                requested_by: "".to_string(),
-                gossip,
-            })),
+            action: Some(Action::new_ping("NODE_A", "", gossip)),
         };
         assert_eq!(result, &expected);
     }

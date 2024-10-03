@@ -1,6 +1,38 @@
 use std::hash::Hash;
 
-use crate::{pb::Gossip, Event, NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected};
+use crate::{
+    pb::{
+        swim_message::{Action, Ping, PingReq},
+        Gossip,
+    },
+    Event, NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected,
+};
+
+impl Action {
+    pub(crate) fn new_ping(
+        from: impl Into<String>,
+        requested_by: impl Into<String>,
+        gossip: Vec<Gossip>,
+    ) -> Self {
+        Self::Ping(Ping {
+            from: from.into(),
+            requested_by: requested_by.into(),
+            gossip,
+        })
+    }
+
+    pub(crate) fn new_ping_req(
+        from: impl Into<String>,
+        suspect: impl Into<String>,
+        gossip: Vec<Gossip>,
+    ) -> Self {
+        Self::PingReq(PingReq {
+            from: from.into(),
+            suspect: suspect.into(),
+            gossip,
+        })
+    }
+}
 
 impl Event {
     pub(crate) fn new_node_joined(

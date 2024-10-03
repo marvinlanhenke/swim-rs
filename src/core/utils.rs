@@ -34,21 +34,14 @@ pub(crate) async fn send_action<T: TransportLayer>(
 mod tests {
     use crate::{
         core::utils::send_action,
-        pb::{
-            swim_message::{Action, Ping},
-            SwimMessage,
-        },
+        pb::{swim_message::Action, SwimMessage},
         test_utils::mocks::MockUdpSocket,
     };
 
     #[tokio::test]
     async fn test_utils_send_action() {
         let socket = MockUdpSocket::new();
-        let action = Action::Ping(Ping {
-            from: "NODE_A".to_string(),
-            requested_by: "".to_string(),
-            gossip: vec![],
-        });
+        let action = Action::new_ping("NODE_A", "", vec![]);
 
         send_action(&socket, &action, "NODE_B").await.unwrap();
 

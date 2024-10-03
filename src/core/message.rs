@@ -106,7 +106,6 @@ impl<T: TransportLayer> MessageHandler<T> {
             gossip,
         });
 
-        // TODO: refactor into Self::get_ack_target
         // We check if the PING was `requested_by` a PING_REQ,
         // if it was we send the ACK to the original issuer.
         let target = match action.requested_by.is_empty() {
@@ -122,20 +121,15 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         self.handle_gossip(&action.gossip).await;
 
-        let requested_by = action.from.clone();
-        let target = action.suspect.clone();
+        let target = &action.suspect;
         let gossip = self
             .disseminator
             .get_gossip(self.membership_list.len())
             .await;
 
-        let action = Action::Ping(Ping {
-            from: self.addr.clone(),
-            requested_by,
-            gossip,
-        });
+        let action = Action::new_ping(&self.addr, &action.from, gossip);
 
-        send_action(&*self.socket, &action, &target).await
+        send_action(&*self.socket, &action, target).await
     }
 
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
@@ -685,11 +679,7 @@ mod tests {
         let result = &message_handler.socket.transmitted().await[0];
 
         let expected = SwimMessage {
-            action: Some(Action::Ping(Ping {
-                from: "NODE_A".to_string(),
-                requested_by: "NODE_B".to_string(),
-                gossip,
-            })),
+            action: Some(Action::new_ping("NODE_A", "NODE_B", gossip)),
         };
 
         assert_eq!(result, &expected);

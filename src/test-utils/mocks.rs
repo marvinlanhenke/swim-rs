@@ -68,23 +68,14 @@ impl TransportLayer for MockUdpSocket {
 mod tests {
     use crate::{
         core::transport::TransportLayer,
-        pb::{
-            swim_message::{Action, Ping},
-            SwimMessage,
-        },
+        pb::{swim_message::Action, SwimMessage},
         test_utils::mocks::MockUdpSocket,
     };
 
     #[tokio::test]
     async fn test_mock_udp_socket_send_to() {
         let socket = MockUdpSocket::new();
-
-        let action = Action::Ping(Ping {
-            from: "localhost".to_string(),
-            requested_by: "".to_string(),
-            gossip: vec![],
-        });
-
+        let action = Action::new_ping("localhost", "", vec![]);
         let mut buf = vec![];
         action.encode(&mut buf);
 
@@ -100,13 +91,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_udp_socket_received() {
         let socket = MockUdpSocket::new();
-
-        let action = Action::Ping(Ping {
-            from: "localhost".to_string(),
-            requested_by: "".to_string(),
-            gossip: vec![],
-        });
-
+        let action = Action::new_ping("localhost", "", vec![]);
         let mut buf = vec![];
         action.encode(&mut buf);
 
