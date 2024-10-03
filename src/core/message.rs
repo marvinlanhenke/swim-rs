@@ -80,6 +80,7 @@ impl<T: TransportLayer> MessageHandler<T> {
             let incarnation = self
                 .disseminator
                 .is_deceased(&action.from)
+                .await
                 .map(|n| n + 1)
                 .unwrap_or(0);
             self.membership_list
@@ -185,6 +186,7 @@ impl<T: TransportLayer> MessageHandler<T> {
         let incoming_incarnation = self
             .disseminator
             .is_deceased(&event.new_member)
+            .await
             .map(|n| n + 1)
             .unwrap_or(0)
             .max(event.joined_incarnation_no);
