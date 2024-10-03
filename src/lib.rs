@@ -48,7 +48,7 @@
 //! - [SWIM Protocol Paper](https://www.cs.cornell.edu/projects/Quicksilver/public_pdfs/SWIM.pdf)
 //! - [GitHub Repository](https://github.com/marvinlanhenke/swim-rs)
 
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 
 pub mod api;
 

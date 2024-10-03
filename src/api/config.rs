@@ -1,6 +1,12 @@
+//! # SWIM Configuration Module
+//!
+//! The `config` module provides structures and builders for configuring the SWIM protocol node.
+//! It allows you to customize various parameters such as timeouts, intervals, and known peers,
+//! enabling fine-tuning of the SWIM protocol to suit your application's needs.
 use std::time::Duration;
 
 /// Default interval between each PING message sent by a node.
+/// This determines how frequently the node checks the health of other nodes.
 const DEFAULT_PING_INTERVAL: Duration = Duration::from_millis(3000);
 
 /// Default timeout for a PING message.
@@ -8,13 +14,15 @@ const DEFAULT_PING_INTERVAL: Duration = Duration::from_millis(3000);
 const DEFAULT_PING_TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Default number of nodes included in a PING-REQ request.
+/// This determines how many nodes are asked to confirm the status of a suspected node.
 const DEFAULT_PING_REQ_GROUP_SIZE: usize = 1;
 
 /// Default timeout for a PING-REQ message.
 /// If no ACK is received within this time, the suspected node is still considered unreachable.
 const DEFAULT_PING_REQ_TIMEOUT: Duration = Duration::from_millis(1000);
 
-/// Default timeout until a suspected node is decleared as deceased.
+/// Default timeout until a suspected node is declared as deceased.
+/// This is the duration a node remains in the `Suspect` state before being considered dead.
 const DEFAULT_SUSPECT_TIMEOUT: Duration = Duration::from_millis(6000);
 
 /// The buffer size for receiving new messages. Defaults to 1536 bytes.
@@ -23,10 +31,11 @@ pub(crate) const DEFAULT_BUFFER_SIZE: usize = 1536;
 /// The constant added to how often a message will be gossiped. Defaults to 3.
 pub(crate) const DEFAULT_GOSSIP_SEND_CONSTANT: usize = 3;
 
-/// Default number of how many messages should be included into a single `Gossip`.
+/// Default number of messages to be included into a single `Gossip`.
 pub(crate) const DEFAULT_GOSSIP_MAX_MESSAGES: usize = 6;
 
 /// Builder for creating a [`SwimConfig`] with customized settings for a SWIM protocol node.
+///
 /// Allows configuring timeouts, intervals, and known peers in the network.
 #[derive(Clone, Debug)]
 pub struct SwimConfigBuilder {
@@ -170,6 +179,16 @@ impl SwimConfig {
     }
 
     /// Returns a new [`SwimConfigBuilder`] to construct a [`SwimConfig`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use swim_rs::api::config::SwimConfig;
+    ///
+    /// let config = SwimConfig::builder()
+    ///     .with_ping_interval(std::time::Duration::from_secs(5))
+    ///     .build();
+    /// ```
     pub fn builder() -> SwimConfigBuilder {
         SwimConfigBuilder::new()
     }
