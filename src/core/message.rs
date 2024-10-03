@@ -177,7 +177,6 @@ impl<T: TransportLayer> MessageHandler<T> {
                 DisseminatorUpdate::NodesAlive
             );
         }
-        tracing::debug!("[{}] {:#?}", &self.addr, self.disseminator);
     }
 
     async fn handle_node_recovered(&self, event: &NodeRecovered) {
@@ -264,8 +263,6 @@ impl<T: TransportLayer> MessageHandler<T> {
                 ),
                 DisseminatorUpdate::NodesDeceased
             );
-
-            tracing::debug!("[{}] {:#?}", &self.addr, self.disseminator);
         }
     }
 }
