@@ -49,6 +49,47 @@ async fn create_single_node(ms: u64, known_peers: &[&str]) -> SwimCluster {
 }
 
 #[tokio::test]
+async fn test_swim_cluster_node_deceased_joins_again_event() {
+    let ms = 10;
+    let node1 = create_single_node(ms, &[]).await;
+    let node2 = create_single_node(ms, &[node1.addr()]).await;
+    let node3 = create_single_node(ms, &[node1.addr()]).await;
+
+    node1.run().await;
+    node2.run().await;
+    let handles = node3.run().await;
+
+    let mut rx1 = node1.subscribe();
+    let mut rx2 = node2.subscribe();
+    let mut rx3 = node3.subscribe();
+
+    assert_event!(Event::NodeJoined, rx1, 1000, |_| true);
+    assert_event!(Event::NodeJoined, rx2, 1000, |_| true);
+    assert_event!(Event::NodeJoined, rx3, 1000, |_| true);
+
+    tracing::info!("[{}] is shutting down...", node3.addr());
+    handles.0.abort();
+    handles.1.abort();
+    let node3_addr = node3.addr().to_string();
+    drop(node3);
+    drop(rx3);
+
+    assert_event!(Event::NodeDeceased, rx1, 1000, |_| true);
+    assert_event!(Event::NodeDeceased, rx2, 1000, |_| true);
+
+    assert_eq!(node1.membership_list().len(), 2);
+    assert_eq!(node2.membership_list().len(), 2);
+
+    let node3 = create_single_node_with_addr(ms, &[node1.addr()], &node3_addr).await;
+    node3.run().await;
+    let mut rx3 = node3.subscribe();
+
+    assert_event!(Event::NodeJoined, rx1, 1000, |_| true);
+    assert_event!(Event::NodeJoined, rx2, 1000, |_| true);
+    assert_event!(Event::NodeJoined, rx3, 1000, |_| true);
+}
+
+#[tokio::test]
 async fn test_swim_cluster_node_deceased_event() {
     let ms = 10;
     let node1 = create_single_node(ms, &[]).await;
