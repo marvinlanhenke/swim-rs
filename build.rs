@@ -10,7 +10,6 @@ fn main() -> Result<()> {
         .type_attribute("NodeRecovered", "#[derive(Hash)]")
         .type_attribute("NodeDeceased", "#[derive(Hash)]")
         .compile_protos(&protos, &includes)?;
-    // prost_build::compile_protos(&protos, &includes)?;
 
     Ok(())
 }
