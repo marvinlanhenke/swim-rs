@@ -56,12 +56,12 @@ impl PartialOrd for GossipHeapEntry {
 }
 
 #[derive(Clone, Debug)]
-struct MinHeapSet<T: Hash + Eq + Ord + Clone> {
-    set: DashSet<T>,
-    heap: Arc<RwLock<BinaryHeap<T>>>,
+struct MinHeapSet {
+    set: DashSet<Gossip>,
+    heap: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
 }
 
-impl<T: Hash + Eq + Ord + Clone> MinHeapSet<T> {
+impl MinHeapSet {
     fn new() -> Self {
         Self {
             set: DashSet::new(),
@@ -77,23 +77,23 @@ impl<T: Hash + Eq + Ord + Clone> MinHeapSet<T> {
         self.len() == 0
     }
 
-    async fn push(&self, item: T) -> bool {
-        if self.set.contains(&item) {
+    async fn push(&self, item: GossipHeapEntry) -> bool {
+        if self.set.contains(&item.gossip) {
             return false;
         }
 
         let mut heap = self.heap.write().await;
         heap.push(item.clone());
-        self.set.insert(item);
+        self.set.insert(item.gossip);
 
         true
     }
 
-    async fn pop(&self) -> Option<T> {
+    async fn pop(&self) -> Option<GossipHeapEntry> {
         let mut heap = self.heap.write().await;
 
         heap.pop().map(|x| {
-            self.set.remove(&x);
+            self.set.remove(&x.gossip);
             x
         })
     }
@@ -107,8 +107,8 @@ pub(crate) enum DisseminatorUpdate {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Disseminator {
-    nodes_alive: MinHeapSet<GossipHeapEntry>,
-    nodes_deceased: MinHeapSet<GossipHeapEntry>,
+    nodes_alive: MinHeapSet,
+    nodes_deceased: MinHeapSet,
     max_selected: usize,
     max_size: usize,
     max_send_constant: usize,
@@ -190,7 +190,7 @@ impl Disseminator {
     }
 
     async fn process_heap_entry(
-        heap: &MinHeapSet<GossipHeapEntry>,
+        heap: &MinHeapSet,
         gossip: &mut Vec<Gossip>,
         seen: &mut HashSet<GossipHeapEntry>,
         num_selected: &mut usize,
@@ -230,26 +230,34 @@ impl Disseminator {
 
 #[cfg(test)]
 mod tests {
-    use crate::{pb::Gossip, Event};
+    use crate::{
+        core::disseminate::{GossipHeapEntry, MinHeapSet},
+        pb::Gossip,
+        Event,
+    };
 
     use super::{Disseminator, DisseminatorUpdate};
 
     #[tokio::test]
     async fn test_disseminator_unique_entries() {
-        let disseminator = Disseminator::new(6, 128, 1);
-        let updates = [
-            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B")),
-            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B")),
-            DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_A", "NODE_B", 0)),
-            DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_A", "NODE_B", 0)),
-        ];
+        let heap = MinHeapSet::new();
+        let gossip = Gossip {
+            event: Some(Event::new_node_joined("NODE_A", "NODE_B")),
+        };
+        heap.push(GossipHeapEntry {
+            gossip: gossip.clone(),
+            num_send: 0,
+            size: 18,
+        })
+        .await;
+        heap.push(GossipHeapEntry {
+            gossip,
+            num_send: 1,
+            size: 18,
+        })
+        .await;
 
-        for update in updates {
-            disseminator.push(update).await;
-        }
-
-        let result = disseminator.get_gossip(0).await;
-        assert_eq!(result.len(), 2);
+        assert_eq!(heap.len(), 1);
     }
 
     #[tokio::test]

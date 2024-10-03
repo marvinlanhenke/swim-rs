@@ -47,6 +47,8 @@ impl Event {
     }
 }
 
+impl Eq for Gossip {}
+
 impl Hash for Gossip {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match &self.event {
