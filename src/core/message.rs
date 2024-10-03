@@ -181,21 +181,43 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
-    // TODO:
-    // add incarnation_no to proto
-    // compare and take max proto_inc vs. deceased_incarnation_no
-    // update node with new incarnation_no if exists
     async fn handle_node_joined(&self, event: &NodeJoined) {
-        //TODO
-        let incarnation_no = 0;
-        if self
+        let incoming_incarnation = self
+            .disseminator
+            .is_deceased(&event.new_member)
+            .map(|n| n + 1)
+            .unwrap_or(0)
+            .max(event.joined_incarnation_no);
+
+        let opt_member = self
             .membership_list
-            .add_member(&event.new_member, incarnation_no)
-            .await
-        {
+            .members()
+            .get(&event.new_member)
+            .map(|m| m.value().clone());
+
+        let should_emit = match opt_member {
+            Some(member) => match incoming_incarnation > member.incarnation {
+                true => {
+                    self.membership_list.update_member(Member {
+                        addr: member.addr.clone(),
+                        state: member.state,
+                        incarnation: incoming_incarnation,
+                    });
+                    true
+                }
+                false => false,
+            },
+            None => {
+                self.membership_list
+                    .add_member(&event.new_member, incoming_incarnation)
+                    .await
+            }
+        };
+
+        if should_emit {
             emit_and_disseminate_event!(
                 &self,
-                Event::new_node_joined(&self.addr, &event.new_member, incarnation_no),
+                Event::new_node_joined(&self.addr, &event.new_member, incoming_incarnation),
                 DisseminatorUpdate::NodesAlive
             );
         }
@@ -433,6 +455,132 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(NodeState::Alive, expected);
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_joined_unknown_with_lt_incarnation_id_deceased() {
+        let message_handler = create_message_handler().await;
+        message_handler
+            .disseminator
+            .push(DisseminatorUpdate::NodesDeceased(Event::new_node_deceased(
+                "NODE_A", "NODE_C", 0,
+            )))
+            .await;
+        let gossip = vec![Gossip {
+            event: Some(Event::new_node_joined("NODE_A", "NODE_C", 0)),
+        }];
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip,
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 3);
+        assert_eq!(
+            message_handler.membership_list.member_incarnation("NODE_C"),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_joined_unknown_with_gt_incarnation_id_deceased() {
+        let message_handler = create_message_handler().await;
+        message_handler
+            .disseminator
+            .push(DisseminatorUpdate::NodesDeceased(Event::new_node_deceased(
+                "NODE_A", "NODE_C", 0,
+            )))
+            .await;
+        let gossip = vec![Gossip {
+            event: Some(Event::new_node_joined("NODE_A", "NODE_C", 2)),
+        }];
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip,
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 3);
+        assert_eq!(
+            message_handler.membership_list.member_incarnation("NODE_C"),
+            Some(2)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_joined_update_with_lt_incarnation_id() {
+        let message_handler = create_message_handler().await;
+        let gossip = Gossip {
+            event: Some(Event::new_node_joined("NODE_A", "NODE_B", 0)),
+        };
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip: vec![gossip],
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 2);
+        assert_eq!(
+            message_handler.membership_list.member_incarnation("NODE_B"),
+            Some(0)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_joined_update_with_gt_incarnation_id() {
+        let message_handler = create_message_handler().await;
+        let gossip = Gossip {
+            event: Some(Event::new_node_joined("NODE_A", "NODE_B", 6)),
+        };
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip: vec![gossip],
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 2);
+        assert_eq!(
+            message_handler.membership_list.member_incarnation("NODE_B"),
+            Some(6)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_message_handle_ping_with_node_joined_unknown_with_incarnation_id() {
+        let message_handler = create_message_handler().await;
+        let gossip = Gossip {
+            event: Some(Event::new_node_joined("NODE_A", "NODE_C", 1)),
+        };
+
+        let action = Ping {
+            from: "NODE_B".to_string(),
+            requested_by: "".to_string(),
+            gossip: vec![gossip],
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 3);
+        assert!(message_handler
+            .membership_list
+            .members()
+            .contains_key("NODE_C"));
+        assert_eq!(
+            message_handler.membership_list.member_incarnation("NODE_C"),
+            Some(1)
+        );
     }
 
     #[tokio::test]
