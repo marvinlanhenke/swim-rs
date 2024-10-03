@@ -72,10 +72,22 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         self.handle_gossip(&action.gossip).await;
 
-        if self.membership_list.add_member(&action.from, 0).await {
+        // If the node is unknown, we check if it is currently gossiped as deceased,
+        // and increase the incarnation number accordingly. This allows us to identify
+        // the `NodeJoined` event as more recently; thus avoiding to remove and add the node
+        // indefinetely.
+        if !self.membership_list.members().contains_key(&action.from) {
+            let incarnation = self
+                .disseminator
+                .is_deceased(&action.from)
+                .map(|n| n + 1)
+                .unwrap_or(0);
+            self.membership_list
+                .add_member(&action.from, incarnation)
+                .await;
             emit_and_disseminate_event!(
                 &self,
-                Event::new_node_joined(&self.addr, &action.from),
+                Event::new_node_joined(&self.addr, &action.from, incarnation),
                 DisseminatorUpdate::NodesAlive
             );
         }
@@ -169,11 +181,21 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
+    // TODO:
+    // add incarnation_no to proto
+    // compare and take max proto_inc vs. deceased_incarnation_no
+    // update node with new incarnation_no if exists
     async fn handle_node_joined(&self, event: &NodeJoined) {
-        if self.membership_list.add_member(&event.new_member, 0).await {
+        //TODO
+        let incarnation_no = 0;
+        if self
+            .membership_list
+            .add_member(&event.new_member, incarnation_no)
+            .await
+        {
             emit_and_disseminate_event!(
                 &self,
-                Event::new_node_joined(&self.addr, &event.new_member),
+                Event::new_node_joined(&self.addr, &event.new_member, incarnation_no),
                 DisseminatorUpdate::NodesAlive
             );
         }
@@ -250,19 +272,22 @@ impl<T: TransportLayer> MessageHandler<T> {
 
     async fn handle_node_deceased(&self, event: &NodeDeceased) {
         let deceased = &event.deceased;
+        let incoming_incarnation = event.deceased_incarnation_no;
 
-        if self.membership_list.members().contains_key(deceased) {
-            self.membership_list.remove_member(&event.deceased).await;
+        if let Some(current_incarnation) = self.membership_list.member_incarnation(deceased) {
+            if incoming_incarnation >= current_incarnation {
+                self.membership_list.remove_member(&event.deceased).await;
 
-            emit_and_disseminate_event!(
-                &self,
-                Event::new_node_deceased(
-                    &self.addr,
-                    &event.deceased,
-                    event.deceased_incarnation_no
-                ),
-                DisseminatorUpdate::NodesDeceased
-            );
+                emit_and_disseminate_event!(
+                    &self,
+                    Event::new_node_deceased(
+                        &self.addr,
+                        &event.deceased,
+                        event.deceased_incarnation_no
+                    ),
+                    DisseminatorUpdate::NodesDeceased
+                );
+            }
         }
     }
 }
@@ -275,7 +300,11 @@ mod tests {
 
     use crate::{
         api::config::{DEFAULT_BUFFER_SIZE, DEFAULT_GOSSIP_MAX_MESSAGES},
-        core::{disseminate::Disseminator, member::MembershipList, message::MessageHandler},
+        core::{
+            disseminate::{Disseminator, DisseminatorUpdate},
+            member::MembershipList,
+            message::MessageHandler,
+        },
         pb::{
             swim_message::{Ack, Action, Ping, PingReq},
             Gossip, Member, NodeState, SwimMessage,
@@ -410,7 +439,7 @@ mod tests {
     async fn test_message_handle_ping_with_node_joined() {
         let message_handler = create_message_handler().await;
         let gossip = Gossip {
-            event: Some(Event::new_node_joined("NODE_A", "NODE_C")),
+            event: Some(Event::new_node_joined("NODE_A", "NODE_C", 0)),
         };
 
         let action = Ping {
@@ -517,6 +546,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_message_handle_ping_with_deceased_node() {
+        let message_handler = create_message_handler().await;
+        message_handler
+            .disseminator
+            .push(DisseminatorUpdate::NodesDeceased(Event::new_node_deceased(
+                "NODE_A", "NODE_C", 3,
+            )))
+            .await;
+        let gossip = message_handler
+            .disseminator
+            .get_gossip(message_handler.membership_list.len())
+            .await;
+
+        let action = Ping {
+            from: "NODE_C".to_string(),
+            requested_by: "".to_string(),
+            gossip: gossip.clone(),
+        };
+
+        message_handler.handle_ping(&action).await.unwrap();
+
+        assert_eq!(message_handler.membership_list.len(), 3);
+        assert!(message_handler
+            .membership_list
+            .members()
+            .contains_key("NODE_C"));
+        assert_eq!(
+            message_handler.membership_list.member_incarnation("NODE_C"),
+            Some(4)
+        );
+    }
+
+    #[tokio::test]
     async fn test_message_handle_ping_with_unknown_member() {
         let message_handler = create_message_handler().await;
         let gossip = message_handler
@@ -537,6 +599,10 @@ mod tests {
             .membership_list
             .members()
             .contains_key("NODE_C"));
+        assert_eq!(
+            message_handler.membership_list.member_incarnation("NODE_C"),
+            Some(0)
+        );
     }
 
     #[tokio::test]
