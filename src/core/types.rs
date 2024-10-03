@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use crate::{
     pb::{
-        swim_message::{Action, Ping, PingReq},
+        swim_message::{Ack, Action, Ping, PingReq},
         Gossip,
     },
     Event, NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected,
@@ -29,6 +29,18 @@ impl Action {
         Self::PingReq(PingReq {
             from: from.into(),
             suspect: suspect.into(),
+            gossip,
+        })
+    }
+
+    pub(crate) fn new_ack(
+        from: impl Into<String>,
+        forward_to: impl Into<String>,
+        gossip: Vec<Gossip>,
+    ) -> Self {
+        Self::Ack(Ack {
+            from: from.into(),
+            forward_to: forward_to.into(),
             gossip,
         })
     }

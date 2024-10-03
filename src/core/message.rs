@@ -93,18 +93,11 @@ impl<T: TransportLayer> MessageHandler<T> {
             );
         }
 
-        // TODO: refactor actions with ::new
-        let from = self.addr.clone();
-        let forward_to = action.requested_by.clone();
         let gossip = self
             .disseminator
             .get_gossip(self.membership_list.len())
             .await;
-        let message = Action::Ack(Ack {
-            from,
-            forward_to,
-            gossip,
-        });
+        let message = Action::new_ack(&self.addr, &action.requested_by, gossip);
 
         // We check if the PING was `requested_by` a PING_REQ,
         // if it was we send the ACK to the original issuer.
@@ -121,15 +114,14 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         self.handle_gossip(&action.gossip).await;
 
-        let target = &action.suspect;
         let gossip = self
             .disseminator
             .get_gossip(self.membership_list.len())
             .await;
 
-        let action = Action::new_ping(&self.addr, &action.from, gossip);
+        let message = Action::new_ping(&self.addr, &action.from, gossip);
 
-        send_action(&*self.socket, &action, target).await
+        send_action(&*self.socket, &message, &action.suspect).await
     }
 
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
@@ -137,25 +129,19 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         self.handle_gossip(&action.gossip).await;
 
-        let member = match self.membership_list.members().get(&action.from) {
-            Some(member) => member.value().clone(),
-            None => {
-                return Ok(());
-            }
-        };
-
         match action.forward_to.is_empty() {
-            true => self.membership_list.update_member(Member::new(
-                &action.from,
-                NodeState::Alive,
-                member.incarnation,
-            )),
+            true => {
+                if let Some(incarnation) = self.membership_list.member_incarnation(&action.from) {
+                    self.membership_list.update_member(Member::new(
+                        &action.from,
+                        NodeState::Alive,
+                        incarnation,
+                    ))
+                }
+            }
             false => {
-                let target = &action.forward_to;
-                let mut forwarded_ack = action.clone();
-                forwarded_ack.forward_to = "".to_string();
-
-                send_action(&*self.socket, &Action::Ack(forwarded_ack), target).await?
+                let message = Action::new_ack(&action.from, "", action.gossip.clone());
+                send_action(&*self.socket, &message, &action.forward_to).await?
             }
         };
 
@@ -620,11 +606,7 @@ mod tests {
         let result = &message_handler.socket.transmitted().await[0];
 
         let expected = SwimMessage {
-            action: Some(Action::Ack(Ack {
-                from: "NODE_B".to_string(),
-                forward_to: "".to_string(),
-                gossip,
-            })),
+            action: Some(Action::new_ack("NODE_B", "", gossip)),
         };
 
         assert_eq!(result, &expected);
@@ -764,11 +746,7 @@ mod tests {
         let result = &message_handler.socket.transmitted().await[0];
 
         let expected = SwimMessage {
-            action: Some(Action::Ack(Ack {
-                from: "NODE_A".to_string(),
-                forward_to: "".to_string(),
-                gossip,
-            })),
+            action: Some(Action::new_ack("NODE_A", "", gossip)),
         };
 
         assert_eq!(result, &expected);

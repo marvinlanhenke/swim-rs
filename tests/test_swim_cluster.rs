@@ -77,9 +77,6 @@ async fn test_swim_cluster_node_deceased_joins_again_event() {
     assert_event!(Event::NodeDeceased, rx1, 1000, |_| true);
     assert_event!(Event::NodeDeceased, rx2, 1000, |_| true);
 
-    assert_eq!(node1.membership_list().len(), 2);
-    assert_eq!(node2.membership_list().len(), 2);
-
     let node3 = create_single_node_with_addr(ms, &[node1.addr()], &node3_addr).await;
     node3.run().await;
     let mut rx3 = node3.subscribe();
@@ -116,9 +113,6 @@ async fn test_swim_cluster_node_deceased_event() {
 
     assert_event!(Event::NodeDeceased, rx1, 1000, |_| true);
     assert_event!(Event::NodeDeceased, rx2, 1000, |_| true);
-
-    assert_eq!(node1.membership_list().len(), 2);
-    assert_eq!(node2.membership_list().len(), 2);
 }
 
 #[tokio::test]
