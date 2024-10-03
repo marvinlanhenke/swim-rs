@@ -19,6 +19,7 @@ message Gossip {
   message NodeJoined {
     string from = 1;
     string new_member = 2;
+    uint64 joined_incarnation_no = 3;
   }
 
   message NodeSuspected {

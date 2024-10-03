@@ -3,10 +3,15 @@ use std::hash::Hash;
 use crate::{pb::Gossip, Event, NodeDeceased, NodeJoined, NodeRecovered, NodeSuspected};
 
 impl Event {
-    pub(crate) fn new_node_joined(from: impl Into<String>, new_member: impl Into<String>) -> Self {
+    pub(crate) fn new_node_joined(
+        from: impl Into<String>,
+        new_member: impl Into<String>,
+        joined_incarnation_no: u64,
+    ) -> Self {
         Event::NodeJoined(NodeJoined {
             from: from.into(),
             new_member: new_member.into(),
+            joined_incarnation_no,
         })
     }
 
