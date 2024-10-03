@@ -138,6 +138,24 @@ impl Disseminator {
         }
     }
 
+    pub(crate) fn is_deceased(&self, addr: impl AsRef<str>) -> Option<u64> {
+        let addr = addr.as_ref();
+
+        self.nodes_deceased
+            .set
+            .iter()
+            .find_map(|gossip| match &gossip.event {
+                Some(Event::NodeDeceased(e)) => {
+                    if e.deceased == addr {
+                        Some(e.deceased_incarnation_no)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+    }
+
     pub(crate) async fn get_gossip(&self, num_members: usize) -> Vec<Gossip> {
         let max_send =
             (((num_members as f64).log10() + 1f64) * self.max_send_constant as f64).ceil() as usize;
@@ -242,7 +260,7 @@ mod tests {
     async fn test_disseminator_unique_entries() {
         let heap = MinHeapSet::new();
         let gossip = Gossip {
-            event: Some(Event::new_node_joined("NODE_A", "NODE_B")),
+            event: Some(Event::new_node_joined("NODE_A", "NODE_B", 0)),
         };
         heap.push(GossipHeapEntry {
             gossip: gossip.clone(),
@@ -264,8 +282,8 @@ mod tests {
     async fn test_disseminator_pop_both_no_space_left() {
         let disseminator = Disseminator::new(6, 32, 1);
         let updates = [
-            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B")),
-            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_C", "NODE_D")),
+            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B", 0)),
+            DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_C", "NODE_D", 0)),
             DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_A", "NODE_B", 0)),
             DisseminatorUpdate::NodesDeceased(Event::new_node_deceased("NODE_C", "NODE_D", 0)),
         ];
@@ -276,7 +294,7 @@ mod tests {
 
         let result = disseminator.get_gossip(0).await;
         let expected = vec![Gossip {
-            event: Some(Event::new_node_joined("NODE_A", "NODE_B")),
+            event: Some(Event::new_node_joined("NODE_A", "NODE_B", 0)),
         }];
 
         assert_eq!(result, expected);
@@ -287,8 +305,8 @@ mod tests {
     #[tokio::test]
     async fn test_disseminator_pop_both_same_len() {
         let disseminator = Disseminator::new(6, 128, 6);
-        let event1 = Event::new_node_joined("NODE_A", "NODE_B");
-        let event2 = Event::new_node_joined("NODE_C", "NODE_D");
+        let event1 = Event::new_node_joined("NODE_A", "NODE_B", 0);
+        let event2 = Event::new_node_joined("NODE_C", "NODE_D", 0);
         let event3 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
         let event4 = Event::new_node_deceased("NODE_C", "NODE_D", 0);
         let updates = [
@@ -326,8 +344,8 @@ mod tests {
     #[tokio::test]
     async fn test_disseminator_pop_both_different_len() {
         let disseminator = Disseminator::new(6, 128, 6);
-        let event1 = Event::new_node_joined("NODE_A", "NODE_B");
-        let event2 = Event::new_node_joined("NODE_C", "NODE_D");
+        let event1 = Event::new_node_joined("NODE_A", "NODE_B", 0);
+        let event2 = Event::new_node_joined("NODE_C", "NODE_D", 0);
         let event3 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
         let updates = [
             DisseminatorUpdate::NodesAlive(event1.clone()),
@@ -360,7 +378,7 @@ mod tests {
     #[tokio::test]
     async fn test_disseminator_pop_both() {
         let disseminator = Disseminator::new(6, 128, 0);
-        let event1 = Event::new_node_joined("NODE_A", "NODE_B");
+        let event1 = Event::new_node_joined("NODE_A", "NODE_B", 0);
         let event2 = Event::new_node_deceased("NODE_A", "NODE_B", 0);
         let updates = [
             DisseminatorUpdate::NodesAlive(event1.clone()),
@@ -391,7 +409,7 @@ mod tests {
     #[tokio::test]
     async fn test_disseminator_push() {
         let disseminator = Disseminator::new(6, 128, 5);
-        let update = DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B"));
+        let update = DisseminatorUpdate::NodesAlive(Event::new_node_joined("NODE_A", "NODE_B", 0));
         disseminator.push(update).await;
 
         let update =
