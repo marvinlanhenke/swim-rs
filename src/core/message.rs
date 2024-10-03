@@ -177,6 +177,7 @@ impl<T: TransportLayer> MessageHandler<T> {
                 DisseminatorUpdate::NodesAlive
             );
         }
+        tracing::debug!("[{}] {:#?}", &self.addr, self.disseminator);
     }
 
     async fn handle_node_recovered(&self, event: &NodeRecovered) {
@@ -249,23 +250,22 @@ impl<T: TransportLayer> MessageHandler<T> {
     }
 
     async fn handle_node_deceased(&self, event: &NodeDeceased) {
-        let node_exists = self.membership_list.members().contains_key(&event.deceased);
+        let deceased = &event.deceased;
 
-        if node_exists {
+        if self.membership_list.members().contains_key(deceased) {
             self.membership_list.remove_member(&event.deceased).await;
-            let deceased_event = Event::new_node_deceased(
-                &event.from,
-                &event.deceased,
-                event.deceased_incarnation_no,
+
+            emit_and_disseminate_event!(
+                &self,
+                Event::new_node_deceased(
+                    &self.addr,
+                    &event.deceased,
+                    event.deceased_incarnation_no
+                ),
+                DisseminatorUpdate::NodesDeceased
             );
 
-            self.disseminator
-                .push(DisseminatorUpdate::NodesDeceased(deceased_event.clone()))
-                .await;
-
-            if let Err(e) = self.tx.send(deceased_event) {
-                tracing::debug!("SendEventError: {}", e.to_string());
-            }
+            tracing::debug!("[{}] {:#?}", &self.addr, self.disseminator);
         }
     }
 }
