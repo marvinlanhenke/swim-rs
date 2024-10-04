@@ -46,8 +46,8 @@ jobs:
       - name: Install Protobuf Compiler (protoc) on Windows
         if: runner.os == 'Windows'
         run: |
-          choco install protoc --version=3.21.9
-          echo "::add-path::C:\ProgramData\chocolatey\bin"
+          choco install protoc 
+          echo "PATH=C:\ProgramData\chocolatey\bin:$PATH" >> $GITHUB_ENV
       - name: Build
         run: cargo build
   unit:
