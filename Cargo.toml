@@ -1,7 +1,7 @@
 [package]
 name = "swim-rs"
 version = "0.1.0"
-authors = "Marvin Lanhenke"
+authors = ["Marvin Lanhenke"]
 edition = "2021"
 rust-version = "1.80.0"
 categories = ["network-programming"]
