@@ -1,3 +1,13 @@
+//! # Disseminator Module
+//!
+//! This module provides the `Disseminator` struct and related types,
+//! which manage the dissemination of gossip messages in the SWIM protocol.
+//! The disseminator maintains gossip messages to be sent to other nodes,
+//! ensuring that updates are propagated efficiently and reliably.
+//!
+//! It handles both nodes that are alive and nodes that are deceased,
+//! tracking how many times each gossip message has been sent,
+//! and removes messages once they have been sent a sufficient number of times.
 use std::{
     collections::{binary_heap::PeekMut, BinaryHeap, HashSet},
     hash::Hash,
@@ -9,14 +19,25 @@ use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use crate::{pb::Gossip, Event};
 
+/// A `GossipHeapEntry` represents an entry in the disseminator's gossip buffers.
+///
+/// It contains a gossip message along with metadata such as the number of times
+/// the message has been sent and its size.
+///
+/// The entries are stored in a binary heap, ordered by the number of times
+/// they have been sent, to prioritize less frequently sent messages.
 #[derive(Clone, Debug)]
 struct GossipHeapEntry {
+    /// The gossip message to be disseminated.
     gossip: Gossip,
+    /// The number of times this gossip message has been sent.
     num_send: usize,
+    /// The size of the gossip message in bytes.
     size: usize,
 }
 
 impl GossipHeapEntry {
+    /// Creates a new `GossipHeapEntry` with the given gossip message.
     fn new(gossip: Gossip) -> Self {
         let size = gossip.encoded_len();
 
@@ -54,22 +75,46 @@ impl PartialOrd for GossipHeapEntry {
     }
 }
 
+/// An update to be processed by the `Disseminator`.
+///
+/// This enum represents different types of gossip updates that can be pushed
+/// to the disseminator for eventual dissemination to other nodes.
 #[derive(Clone, Debug)]
 pub(crate) enum DisseminatorUpdate {
+    /// An event indicating that a node is not yet deceased.
     NodesAlive(Event),
+    /// An event indicating that a node is deceased.
     NodesDeceased(Event),
 }
 
+/// The `Disseminator` manages the dissemination of gossip messages in the SWIM protocol.
+///
+/// It maintains separate heaps for alive and deceased node gossip messages,
+/// ensuring that updates are sent a specified number of times before being removed.
+/// The disseminator selects gossip messages to send based on the configured parameters,
+/// such as maximum number of messages, maximum size, and send constants.
 #[derive(Clone, Debug)]
 pub(crate) struct Disseminator {
+    /// A buffer of gossip messages for nodes that are alive.
     nodes_alive: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
+    /// A buffer of gossip messages for nodes that are deceased.
     nodes_deceased: Arc<RwLock<BinaryHeap<GossipHeapEntry>>>,
+    /// Maximum number of gossip messages to select.
     max_selected: usize,
+    /// Maximum total size of gossip messages to send.
     max_size: usize,
+    /// Constant determining how many times a message should be sent.
     max_send_constant: usize,
 }
 
 impl Disseminator {
+    /// Creates a new `Disseminator` with the specified parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_selected` - Maximum number of gossip messages to select.
+    /// * `max_size` - Maximum total size (in bytes) of gossip messages to send.
+    /// * `max_send_constant` - Constant determining how many times a message should be sent.
     pub(crate) fn new(max_selected: usize, max_size: usize, max_send_constant: usize) -> Self {
         Self {
             nodes_alive: Arc::new(RwLock::new(BinaryHeap::new())),
@@ -80,6 +125,10 @@ impl Disseminator {
         }
     }
 
+    /// Pushes a new update into the disseminator for dissemination.
+    ///
+    /// Depending on the type of the update (`NodesAlive` or `NodesDeceased`),
+    /// the update is added to the corresponding buffer.
     pub(crate) async fn push(&self, update: DisseminatorUpdate) {
         match update {
             DisseminatorUpdate::NodesAlive(event) => {
@@ -95,6 +144,10 @@ impl Disseminator {
         }
     }
 
+    /// Checks if a node is (recently) deceased
+    /// by looking up in the disseminator's deceased nodes buffer.
+    ///
+    /// Returns the deceased incarnation number if the node is found, or `None` otherwise.
     pub(crate) async fn is_deceased(&self, addr: impl AsRef<str>) -> Option<u64> {
         let addr = addr.as_ref();
 
@@ -114,6 +167,12 @@ impl Disseminator {
             })
     }
 
+    /// Retrieves a list of gossip messages to send, based on the disseminator's configuration.
+    ///
+    /// This method selects gossip messages from both alive and deceased buffers,
+    /// ensuring that the total size and number of messages do not exceed the configured limits.
+    ///
+    /// It prioritizes messages that have been sent fewer times.
     pub(crate) async fn get_gossip(&self, num_members: usize) -> Vec<Gossip> {
         let max_send =
             (((num_members as f64).log10() + 1f64) * self.max_send_constant as f64).ceil() as usize;
@@ -165,6 +224,10 @@ impl Disseminator {
         gossip
     }
 
+    /// Processes a single heap entry from the given heap and potentially adds it to the gossip list.
+    ///
+    /// This method updates the send count for the entry, removes it if it has been sent enough times,
+    /// and updates the selection counts and current size.
     fn process_heap_entry(
         heap: &mut RwLockWriteGuard<BinaryHeap<GossipHeapEntry>>,
         gossip: &mut Vec<Gossip>,
