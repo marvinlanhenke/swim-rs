@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Diff
+        run: git diff --exit-code 
+      - name: Cargo Format
+        run: make check-fmt
+      - name: Cargo Clippy
+        run: make check-clippy
+      - name: Cargo Sort
+        run: make cargo-sort
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Tests
+        run: cargo test --no-fail-fast --all-targets --all-features --workspace
+      - name: Run Doc Tests
+        run: cargo test --no-fail-fast --doc --all-features --workspace
