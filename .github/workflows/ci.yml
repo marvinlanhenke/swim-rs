@@ -35,16 +35,34 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Protobuf Compiler (protoc)
+      - name: Install Protobuf Compiler (protoc) on Ubuntu
+        if: runner.os == 'Linux'
         run: sudo apt-get install -y protobuf-compiler
+      - name: Install Protobuf Compiler (protoc) on macOS
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+      - name: Install Protobuf Compiler (protoc) on Windows
+        if: runner.os == 'Windows'
+        run: |
+          choco install protoc --version=3.21.9
+          echo "::add-path::C:\ProgramData\chocolatey\bin"
       - name: Build
         run: cargo build
   unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Protobuf Compiler (protoc)
+      - name: Install Protobuf Compiler (protoc) on Ubuntu
+        if: runner.os == 'Linux'
         run: sudo apt-get install -y protobuf-compiler
+      - name: Install Protobuf Compiler (protoc) on macOS
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+      - name: Install Protobuf Compiler (protoc) on Windows
+        if: runner.os == 'Windows'
+        run: |
+          choco install protoc --version=3.21.9
+          echo "::add-path::C:\ProgramData\chocolatey\bin"
       - name: Run Tests
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
       - name: Run Doc Tests
