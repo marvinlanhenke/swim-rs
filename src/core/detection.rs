@@ -1,3 +1,8 @@
+//! # Failure Detector Module
+//!
+//! This module implements the failure detection mechanism for the SWIM protocol.
+//! It handles sending and receiving ping messages, detecting failed nodes,
+//! and managing the state transitions of nodes in the cluster.
 use std::sync::Arc;
 
 use tokio::sync::broadcast::Sender;
@@ -14,12 +19,19 @@ use super::disseminate::{Disseminator, DisseminatorUpdate};
 use super::member::MembershipList;
 use super::transport::TransportLayer;
 
+/// Represents the type of acknowledgment expected or received.
+///
+/// Used to distinguish between acknowledgments for direct ping messages
+/// and indirect ping requests (`ping-req`)
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AckType {
+    /// Acknowledgment for a direct ping message.
     PingAck,
+    /// Acknowledgment for an indirect ping request (`ping-req`).
     PingReqAck,
 }
 
+/// Represents the various states of the failure detector during its operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FailureDetectorState {
     SendingPing,
@@ -38,18 +50,44 @@ pub(crate) enum FailureDetectorState {
     },
 }
 
+/// The `FailureDetector` is responsible for monitoring the health of nodes in the cluster.
+///
+/// It periodically sends ping messages to other nodes, handles acknowledgments,
+/// and initiates the suspicion mechanism when nodes are unresponsive.
+/// It updates the membership list and disseminates events accordingly.
 #[derive(Clone, Debug)]
 pub(crate) struct FailureDetector<T: TransportLayer> {
+    /// The address of this node.
     addr: String,
+    /// The [`TransportLayer`] used for sending and receiving messages.
     socket: Arc<T>,
+    /// The current state of the failure detector.
     state: Arc<RwLock<FailureDetectorState>>,
+    /// Configuration parameters for the SWIM protocol.
     config: Arc<SwimConfig>,
+    /// The membership list of nodes in the cluster.
     membership_list: Arc<MembershipList>,
+    /// The disseminator for broadcasting events to other nodes.
     disseminator: Arc<Disseminator>,
+    /// Channel for sending events to subscribers.
     tx: Sender<Event>,
 }
 
 impl<T: TransportLayer> FailureDetector<T> {
+    /// Creates a new instance of the `FailureDetector`.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address of this node.
+    /// * `socket` - The transport layer used for communication.
+    /// * `config` - Configuration settings for the SWIM protocol.
+    /// * `membership_list` - The shared membership list.
+    /// * `disseminator` - The disseminator for propagating events.
+    /// * `tx` - The sender part of a broadcast channel for emitting events.
+    ///
+    /// # Returns
+    ///
+    /// A new `FailureDetector` instance.
     pub(crate) fn new(
         addr: impl Into<String>,
         socket: Arc<T>,
@@ -72,11 +110,16 @@ impl<T: TransportLayer> FailureDetector<T> {
         }
     }
 
+    /// Retrieves the current state of the failure detector.
     pub(crate) async fn state(&self) -> FailureDetectorState {
         let state = self.state.read().await;
         (*state).clone()
     }
 
+    /// Sends a ping message to a target node to check its liveness.
+    ///
+    /// This method selects a target node from the membership list, sends a ping,
+    /// and updates the state to wait for an acknowledgment.
     pub(crate) async fn send_ping(&self) -> Result<()> {
         tokio::time::sleep(self.config.ping_interval()).await;
 
@@ -110,6 +153,10 @@ impl<T: TransportLayer> FailureDetector<T> {
         Ok(())
     }
 
+    /// Sends a ping request (`ping-req`) to other nodes to indirectly check the liveness of a suspect node.
+    ///
+    /// If a node does not respond to a direct ping, this method sends `ping-req` messages
+    /// to a group of other nodes, asking them to ping the suspect node on behalf of this node.
     pub(crate) async fn send_ping_req(
         &self,
         suspect: impl Into<String>,
@@ -160,6 +207,10 @@ impl<T: TransportLayer> FailureDetector<T> {
         Ok(())
     }
 
+    /// Waits for an acknowledgment from a target node within a specified timeout.
+    ///
+    /// Depending on the `AckType`, it waits for a direct ping acknowledgment or
+    /// an acknowledgment from a ping request (`ping-req`).
     pub(crate) async fn wait_for_ack(
         &self,
         target: impl Into<String>,
@@ -214,6 +265,10 @@ impl<T: TransportLayer> FailureDetector<T> {
         }
     }
 
+    /// Declares a suspect node as dead after it fails to respond within the `suspect timeout` period.
+    ///
+    /// This method updates the membership list, disseminates the event to other nodes,
+    /// and notifies subscribers about the node's death.
     pub(crate) async fn declare_node_as_dead(
         &self,
         target: impl Into<String>,
