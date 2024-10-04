@@ -1,7 +1,14 @@
 [package]
 name = "swim-rs"
 version = "0.1.0"
+authors = "Marvin Lanhenke"
 edition = "2021"
+rust-version = "1.80.0"
+categories = ["network-programming"]
+description = "Rust implementation of the SWIM protocol"
+repository = "https://github.com/marvinlanhenke/swim-rs"
+license = "Apache-2.0"
+keywords = ["swim", "protocol", "distributed", "gossip"]
 
 [dependencies]
 async-trait = "0.1.83"
