@@ -64,7 +64,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           choco install protoc --version=3.21.9
-          echo "::add-path::C:\ProgramData\chocolatey\bin"
+          echo "C:\ProgramData\chocolatey\bin" >> $env::GITHUB_PATH
       - name: Run Tests
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
       - name: Run Doc Tests
