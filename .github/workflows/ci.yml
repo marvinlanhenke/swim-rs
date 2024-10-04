@@ -35,12 +35,16 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Protobuf Compiler (protoc)
+        run: sudo apt-get install -y protobuf-compiler
       - name: Build
         run: cargo build
   unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Protobuf Compiler (protoc)
+        run: sudo apt-get install -y protobuf-compiler
       - name: Run Tests
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
       - name: Run Doc Tests
