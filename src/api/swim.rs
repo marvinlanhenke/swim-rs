@@ -14,7 +14,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use swim_rs::api::{config::SwimConfig, swim::SwimCluster};
+//! use swim_rs::{api::{config::SwimConfig, swim::SwimCluster}, Result};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
@@ -74,7 +74,7 @@ impl SwimCluster {
     /// # Examples
     ///
     /// ```rust
-    /// use swim_rs::api::{config::SwimConfig, swim::SwimCluster};
+    /// use swim_rs::{api::{config::SwimConfig, swim::SwimCluster},Result};
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<()> {
@@ -130,7 +130,7 @@ impl SwimCluster {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use swim_rs::api::{config::SwimConfig, swim::SwimCluster};
+    /// use swim_rs::{api::{config::SwimConfig, swim::SwimCluster}, Result};
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<()> {
