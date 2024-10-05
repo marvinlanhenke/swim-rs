@@ -1,3 +1,10 @@
+//! # Membership List Module
+//!
+//! This module defines the `MembershipList` and related structures used to manage
+//! the list of nodes participating in the SWIM protocol implementation.
+//! It maintains the list of members, their states, and provides methods to
+//! add, remove, and update members, as well as to get subsets of members for
+//! gossiping and failure detection.
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -12,6 +19,13 @@ use crate::error::{Error, Result};
 use crate::pb::{Member, NodeState};
 
 impl Member {
+    /// Creates a new `Member` instance with the specified address, state, and incarnation number.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address of the member node (e.g., "127.0.0.1:8080").
+    /// * `state` - The state of the node (e.g., `NodeState::Alive`).
+    /// * `incarnation` - The incarnation number of the node.
     pub(crate) fn new(addr: impl Into<String>, state: NodeState, incarnation: u64) -> Self {
         Self {
             addr: addr.into(),
@@ -21,14 +35,28 @@ impl Member {
     }
 }
 
+/// An index that maintains the positions of members in the membership list.
+///
+/// Used for selecting members in a round-robin fashion and shuffling the list
+/// periodically to ensure randomness in member selection.
 #[derive(Clone, Debug)]
 struct MembershipListIndex {
+    /// The list of member addresses.
     index: Arc<RwLock<Vec<String>>>,
+    /// The current position in the index.
     pos: Arc<AtomicUsize>,
+    /// The length of the index.
     len: Arc<AtomicUsize>,
 }
 
 impl MembershipListIndex {
+    /// Creates a new [`MembershipListIndex`]
+    /// from a slice of member addresses and a starting position.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - A slice of member addresses to initialize the index.
+    /// * `pos` - The starting position in the index.
     fn new(index: &[&str], pos: usize) -> Self {
         let len = index.len();
         let index = index.iter().map(|x| x.to_string()).collect::<Vec<_>>();
@@ -40,14 +68,19 @@ impl MembershipListIndex {
         }
     }
 
+    /// Returns the length of the index.
     fn len(&self) -> usize {
         self.len.load(Ordering::SeqCst)
     }
 
+    /// Returns the current position in the index.
     fn pos(&self) -> usize {
         self.pos.load(Ordering::SeqCst)
     }
 
+    /// Advances the current position in the index and shuffles the index if needed.
+    ///
+    /// Returns the new position.
     async fn advance(&self) -> usize {
         let next_pos = (self.pos() + 1) % self.len();
 
@@ -59,12 +92,14 @@ impl MembershipListIndex {
         next_pos
     }
 
+    /// Inserts a list of member addresses at random positions in the index.
     async fn insert_list_at_random_pos(&self, addrs: &[String]) {
         for addr in addrs.iter() {
             self.insert_at_random_pos(addr).await
         }
     }
 
+    /// Inserts a member address at a random position in the index.
     async fn insert_at_random_pos(&self, addr: impl Into<String>) {
         let pos = thread_rng().gen_range(0..=self.len());
         let mut index = self.index.write().await;
@@ -72,6 +107,7 @@ impl MembershipListIndex {
         self.len.store(index.len(), Ordering::SeqCst);
     }
 
+    /// Removes a member address from the index.
     async fn remove(&self, addr: impl AsRef<str>) {
         let mut index = self.index.write().await;
 
@@ -85,27 +121,48 @@ impl MembershipListIndex {
         }
     }
 
+    /// Returns the current member address at the current position in the index.
     async fn current(&self) -> Option<String> {
         let pos = self.pos();
         let index = self.index.read().await;
         index.get(pos).cloned()
     }
 
+    /// Shuffles the index to randomize the order of member addresses.
     async fn shuffle(&self) {
         let mut index = self.index.write().await;
         index.shuffle(&mut thread_rng());
     }
 }
 
+/// The `MembershipList` maintains the list of members in the SWIM cluster.
+///
+/// It keeps track of member states, provides methods to add, remove, and update members,
+/// and supports selecting random subsets of members for gossip and failure detection.
 #[derive(Clone, Debug)]
 pub struct MembershipList {
+    /// The address of this node.
     addr: String,
+    /// A map of member addresses to their `Member` struct.
     members: DashMap<String, Member>,
+    /// An index to manage member selection and shuffling.
     index: MembershipListIndex,
+    /// A notification mechanism to signal when new members are added.
     notify: Arc<Notify>,
 }
 
 impl MembershipList {
+    /// Creates a new [`MembershipList`] for the node
+    /// with the given address and incarnation number.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address of this node.
+    /// * `incarnation` - The initial incarnation number of this node.
+    ///
+    /// # Returns
+    ///
+    /// A new `MembershipList` instance.
     pub fn new(addr: impl Into<String>, incarnation: u64) -> Self {
         let addr = addr.into();
         let members = DashMap::from_iter([(
@@ -123,18 +180,22 @@ impl MembershipList {
         }
     }
 
+    /// Checks if the membership list is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Returns the number of members in the membership list.
     pub fn len(&self) -> usize {
         self.members.len()
     }
 
+    /// Returns a reference to the members map.
     pub fn members(&self) -> &DashMap<String, Member> {
         &self.members
     }
 
+    /// Retrieves the state of a member.
     pub fn member_state(&self, addr: impl AsRef<str>) -> Option<Result<NodeState>> {
         let addr = addr.as_ref();
         self.members.get(addr).map(|entry| {
@@ -145,6 +206,7 @@ impl MembershipList {
         })
     }
 
+    /// Retrieves the incarnation number of a member.
     pub fn member_incarnation(&self, addr: impl AsRef<str>) -> Option<u64> {
         let addr = addr.as_ref();
         self.members()
@@ -152,7 +214,12 @@ impl MembershipList {
             .map(|entry| entry.value().incarnation)
     }
 
-    // Adds member only if not already exists. Returns true if member has been added.
+    /// Adds a new member to the membership list.
+    /// The member is added only if it does not already exist.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the member was added, `false` if it already existed.
     pub async fn add_member(&self, addr: impl Into<String>, incarnation: u64) -> bool {
         let addr = addr.into();
 
@@ -168,6 +235,7 @@ impl MembershipList {
         true
     }
 
+    /// Updates an existing member in the membership list.
     pub fn update_member(&self, member: Member) {
         if self.members.contains_key(&member.addr) {
             self.members.insert(member.addr.clone(), member);
@@ -175,6 +243,9 @@ impl MembershipList {
         self.notify_waiters();
     }
 
+    /// Updates the membership list from an iterator of `Member` instances.
+    ///
+    /// New members are added, and existing members are updated.
     pub async fn update_from_iter<I>(&self, iter: I)
     where
         I: IntoIterator<Item = Member>,
@@ -195,12 +266,14 @@ impl MembershipList {
         self.notify_waiters();
     }
 
+    /// Removes a member from the membership list.
     pub(crate) async fn remove_member(&self, addr: impl AsRef<str>) -> bool {
         let addr = addr.as_ref();
         self.index.remove(addr).await;
         self.members.remove(addr).is_some()
     }
 
+    /// Retrieves a list of members, excluding certain addresses.
     pub(crate) async fn get_member_list(
         &self,
         amount: usize,
@@ -239,6 +312,7 @@ impl MembershipList {
         selected_members
     }
 
+    /// Waits until at least one other member is present in the membership list.
     pub(crate) async fn wait_for_members(&self) {
         while self.len() <= 1 {
             tracing::debug!("[{}] waiting for members", self.addr);
@@ -246,6 +320,7 @@ impl MembershipList {
         }
     }
 
+    /// Notifies any tasks waiting for new members.
     fn notify_waiters(&self) {
         if self.len() > 1 {
             self.notify.notify_waiters();
