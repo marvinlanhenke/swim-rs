@@ -1,3 +1,9 @@
+//! # SWIM Message Actions and Events
+//!
+//! This module provides constructors for SWIM message actions and events,
+//! such as `Ping`, `PingReq`, `Ack`, and various node state events.
+//! It also implements `Hash` and `Eq` for `Gossip` messages, allowing them
+//! to be used in hash-based collections.
 use std::hash::Hash;
 
 use crate::{
@@ -9,6 +15,17 @@ use crate::{
 };
 
 impl Action {
+    /// Creates a new `Ping` action message.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The address of the node sending the ping.
+    /// * `requested_by` - The address of the node that requested this ping, if any.
+    /// * `gossip` - A vector of gossip messages to include.
+    ///
+    /// # Returns
+    ///
+    /// A new `Action::Ping` variant containing the provided information.
     pub(crate) fn new_ping(
         from: impl Into<String>,
         requested_by: impl Into<String>,
@@ -21,6 +38,17 @@ impl Action {
         })
     }
 
+    /// Creates a new `PingReq` action message.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The address of the node requesting the ping.
+    /// * `suspect` - The address of the suspected node to ping.
+    /// * `gossip` - A vector of gossip messages to include.
+    ///
+    /// # Returns
+    ///
+    /// A new `Action::PingReq` variant containing the provided information.
     pub(crate) fn new_ping_req(
         from: impl Into<String>,
         suspect: impl Into<String>,
@@ -33,6 +61,17 @@ impl Action {
         })
     }
 
+    /// Creates a new `Ack` action message.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The address of the node sending the acknowledgement.
+    /// * `forward_to` - The address of the node to forward the acknowledgement to, if any.
+    /// * `gossip` - A vector of gossip messages to include.
+    ///
+    /// # Returns
+    ///
+    /// A new `Action::Ack` variant containing the provided information.
     pub(crate) fn new_ack(
         from: impl Into<String>,
         forward_to: impl Into<String>,
@@ -47,6 +86,17 @@ impl Action {
 }
 
 impl Event {
+    /// Creates a new `NodeJoined` event.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The address of the node that observed the join.
+    /// * `new_member` - The address of the new member that joined.
+    /// * `joined_incarnation_no` - The incarnation number of the new member.
+    ///
+    /// # Returns
+    ///
+    /// A new `Event::NodeJoined` variant containing the provided information.
     pub(crate) fn new_node_joined(
         from: impl Into<String>,
         new_member: impl Into<String>,
@@ -59,6 +109,17 @@ impl Event {
         })
     }
 
+    /// Creates a new `NodeSuspected` event.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The address of the node that suspects another node.
+    /// * `suspect` - The address of the suspected node.
+    /// * `suspect_incarnation_no` - The incarnation number of the suspected node.
+    ///
+    /// # Returns
+    ///
+    /// A new `Event::NodeSuspected` variant containing the provided information.
     pub(crate) fn new_node_suspected(
         from: impl Into<String>,
         suspect: impl Into<String>,
@@ -71,6 +132,17 @@ impl Event {
         })
     }
 
+    /// Creates a new `NodeRecovered` event.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The address of the node that observed the recovery.
+    /// * `recovered` - The address of the node that has recovered.
+    /// * `recovered_incarnation_no` - The new incarnation number of the recovered node.
+    ///
+    /// # Returns
+    ///
+    /// A new `Event::NodeRecovered` variant containing the provided information.
     pub(crate) fn new_node_recovered(
         from: impl Into<String>,
         recovered: impl Into<String>,
@@ -83,6 +155,17 @@ impl Event {
         })
     }
 
+    /// Creates a new `NodeDeceased` event.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The address of the node that observed the node as deceased.
+    /// * `deceased` - The address of the deceased node.
+    /// * `deceased_incarnation_no` - The incarnation number of the deceased node.
+    ///
+    /// # Returns
+    ///
+    /// A new `Event::NodeDeceased` variant containing the provided information.
     pub(crate) fn new_node_deceased(
         from: impl Into<String>,
         deceased: impl Into<String>,
