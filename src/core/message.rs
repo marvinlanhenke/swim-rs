@@ -1,3 +1,9 @@
+//! # Message Handler Module
+//!
+//! This module implements the `MessageHandler` struct and associated methods,
+//! which are responsible for handling incoming SWIM protocol messages.
+//! The `MessageHandler` processes different types of messages (e.g., PING, PING_REQ, ACK),
+//! handles gossip dissemination, and updates the membership list accordingly.
 use std::sync::Arc;
 
 use crate::{
@@ -19,16 +25,38 @@ use tokio::sync::broadcast::Sender;
 
 use super::{disseminate::Disseminator, member::MembershipList, transport::TransportLayer};
 
+/// The `MessageHandler` is responsible for handling incoming SWIM protocol messages.
+///
+/// It processes different actions such as PING, PING_REQ, and ACK,
+/// handles gossip messages, updates the membership list, and disseminates events.
 #[derive(Clone, Debug)]
 pub(crate) struct MessageHandler<T: TransportLayer> {
+    /// The address of this node.
     addr: String,
+    /// The transport layer used for sending and receiving messages.
     socket: Arc<T>,
+    /// The membership list of nodes in the cluster.
     membership_list: Arc<MembershipList>,
+    /// The disseminator for propagating gossip messages.
     disseminator: Arc<Disseminator>,
+    /// Channel for sending events to subscribers.
     tx: Sender<Event>,
 }
 
 impl<T: TransportLayer> MessageHandler<T> {
+    /// Creates a new instance of the `MessageHandler`.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address of this node.
+    /// * `socket` - The transport layer used for communication.
+    /// * `membership_list` - The shared membership list.
+    /// * `disseminator` - The disseminator for propagating gossip messages.
+    /// * `tx` - The sender part of a broadcast channel for emitting events.
+    ///
+    /// # Returns
+    ///
+    /// A new `MessageHandler` instance.
     pub(crate) fn new(
         addr: impl Into<String>,
         socket: Arc<T>,
@@ -47,6 +75,10 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
+    /// Dispatches incoming actions by reading from the socket and handling the message accordingly.
+    ///
+    /// This method reads a message from the socket, decodes it, and dispatches it to the appropriate handler
+    /// based on the action type (PING, PING_REQ, ACK).
     pub(crate) async fn dispatch_action(&self) -> Result<()> {
         use swim_message::Action::*;
 
@@ -67,6 +99,10 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
+    /// Handles an incoming PING message.
+    ///
+    /// Processes any gossip messages included with the PING, updates the membership list,
+    /// and sends an ACK back to the sender or the original requester if it's a forwarded PING.
     pub(crate) async fn handle_ping(&self, action: &Ping) -> Result<()> {
         tracing::debug!("[{}] handling {action:#?}", &self.addr);
 
@@ -74,8 +110,7 @@ impl<T: TransportLayer> MessageHandler<T> {
 
         // If the node is unknown, we check if it is currently gossiped as deceased,
         // and increase the incarnation number accordingly. This allows us to identify
-        // the `NodeJoined` event as more recently; thus avoiding to remove and add the node
-        // indefinetely.
+        // the `NodeJoined` event as more recently.
         if !self.membership_list.members().contains_key(&action.from) {
             let incarnation = self
                 .disseminator
@@ -109,6 +144,10 @@ impl<T: TransportLayer> MessageHandler<T> {
         send_action(&*self.socket, &message, target).await
     }
 
+    /// Handles an incoming PING_REQ message.
+    ///
+    /// Processes any gossip messages included with the PING_REQ, and sends a PING to the suspect node
+    /// on behalf of the original requester.
     pub(crate) async fn handle_ping_req(&self, action: &PingReq) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
@@ -124,6 +163,10 @@ impl<T: TransportLayer> MessageHandler<T> {
         send_action(&*self.socket, &message, &action.suspect).await
     }
 
+    /// Handles an incoming ACK message.
+    ///
+    /// Processes any gossip messages included with the ACK, updates the membership list,
+    /// and forwards the ACK if necessary.
     pub(crate) async fn handle_ack(&self, action: &Ack) -> Result<()> {
         tracing::debug!("[{}] handling {action:?}", &self.addr);
 
@@ -148,6 +191,9 @@ impl<T: TransportLayer> MessageHandler<T> {
         Ok(())
     }
 
+    /// Handles gossip messages included in actions.
+    ///
+    /// Processes each gossip message and calls the appropriate handler based on the event type.
     async fn handle_gossip(&self, gossip: &[Gossip]) {
         for message in gossip {
             if let Some(event) = &message.event {
@@ -162,6 +208,9 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
+    /// Handles a `NodeJoined` gossip event.
+    ///
+    /// Updates the membership list with the new member and disseminates the event if necessary.
     async fn handle_node_joined(&self, event: &NodeJoined) {
         let incoming_incarnation = self
             .disseminator
@@ -205,6 +254,9 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
+    /// Handles a `NodeRecovered` gossip event.
+    ///
+    /// Updates the membership list to mark the node as alive and disseminates the event if necessary.
     async fn handle_node_recovered(&self, event: &NodeRecovered) {
         let incoming_incarnation = event.recovered_incarnation_no;
 
@@ -226,6 +278,10 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
+    /// Handles a `NodeSuspected` gossip event.
+    ///
+    /// Updates the membership list to mark the node as suspected and disseminates the event if necessary.
+    /// If the current node itself is suspected, it initiates a recovery process.
     async fn handle_node_suspected(&self, event: &NodeSuspected) {
         let is_suspected = event.suspect == self.addr;
 
@@ -274,6 +330,9 @@ impl<T: TransportLayer> MessageHandler<T> {
         }
     }
 
+    /// Handles a `NodeDeceased` gossip event.
+    ///
+    /// Removes the deceased node from the membership list and disseminates the event if necessary.
     async fn handle_node_deceased(&self, event: &NodeDeceased) {
         let deceased = &event.deceased;
         let incoming_incarnation = event.deceased_incarnation_no;
