@@ -7,7 +7,6 @@ use super::transport::TransportLayer;
 ///
 /// This macro simplifies the process of emitting an event and pushing an update to the disseminator.
 /// It logs the event, pushes the update to the disseminator, and sends the event through a broadcast channel.
-#[macro_export]
 macro_rules! emit_and_disseminate_event {
     ($this:expr, $event:expr, $update:path) => {
         let event = $event;
@@ -20,6 +19,8 @@ macro_rules! emit_and_disseminate_event {
         }
     };
 }
+
+pub(crate) use emit_and_disseminate_event;
 
 /// Sends an `Action` to a target node over the transport layer.
 ///

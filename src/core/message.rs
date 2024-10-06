@@ -8,8 +8,10 @@ use std::sync::Arc;
 
 use crate::{
     api::config::DEFAULT_BUFFER_SIZE,
-    core::{disseminate::DisseminatorUpdate, utils::send_action},
-    emit_and_disseminate_event,
+    core::{
+        disseminate::DisseminatorUpdate,
+        utils::{emit_and_disseminate_event, send_action},
+    },
     error::{Error, Result},
     pb::{
         gossip::{NodeJoined, NodeRecovered, NodeSuspected},

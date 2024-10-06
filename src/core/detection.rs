@@ -9,11 +9,12 @@ use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
 
 use crate::api::config::SwimConfig;
+use crate::core::utils::emit_and_disseminate_event;
 use crate::core::utils::send_action;
 use crate::error::Result;
 use crate::pb::swim_message::Action;
 use crate::pb::{Member, NodeState};
-use crate::{emit_and_disseminate_event, Event};
+use crate::Event;
 
 use super::disseminate::{Disseminator, DisseminatorUpdate};
 use super::member::MembershipList;
