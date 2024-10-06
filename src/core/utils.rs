@@ -3,6 +3,10 @@ use crate::pb::swim_message::Action;
 
 use super::transport::TransportLayer;
 
+/// A macro to emit an event and disseminate it through the disseminator.
+///
+/// This macro simplifies the process of emitting an event and pushing an update to the disseminator.
+/// It logs the event, pushes the update to the disseminator, and sends the event through a broadcast channel.
 #[macro_export]
 macro_rules! emit_and_disseminate_event {
     ($this:expr, $event:expr, $update:path) => {
@@ -17,6 +21,24 @@ macro_rules! emit_and_disseminate_event {
     };
 }
 
+/// Sends an `Action` to a target node over the transport layer.
+///
+/// This function encodes the provided `Action` into a byte buffer and sends it to the specified target
+/// using the provided transport layer.
+///
+/// # Arguments
+///
+/// * `socket` - A reference to the transport layer implementing `TransportLayer`.
+/// * `action` - The `Action` to send.
+/// * `target` - The target node's address to send the action to.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if the action was sent successfully, or an `Error` if sending failed.
+///
+/// # Errors
+///
+/// This function returns an error if encoding the action or sending it over the transport layer fails.
 pub(crate) async fn send_action<T: TransportLayer>(
     socket: &T,
     action: &Action,
