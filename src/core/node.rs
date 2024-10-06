@@ -1,3 +1,8 @@
+//! # SWIM Node Module
+//!
+//! This module defines the `SwimNode` struct, which represents a node in the SWIM cluster.
+//! The node is responsible for orchestrating the various components of the SWIM protocol,
+//! including failure detection, message handling, and membership list management.
 use std::sync::Arc;
 
 use tokio::{
@@ -20,6 +25,10 @@ use super::{
     transport::TransportLayer,
 };
 
+/// A macro to await a future and log any errors that occur.
+///
+/// This macro simplifies error handling in asynchronous contexts by logging
+/// errors with a custom message.
 macro_rules! await_and_log_error {
     ($expr:expr, $name:expr) => {{
         if let Err(e) = $expr.await {
@@ -28,17 +37,42 @@ macro_rules! await_and_log_error {
     }};
 }
 
+/// Represents a node in the SWIM cluster.
+///
+/// The `SwimNode` struct encapsulates the components necessary for running the SWIM protocol,
+/// including the failure detector, message handler, and membership list. It provides methods
+/// to initialize the node, run the protocol, and interact with the node's state.
 #[derive(Clone, Debug)]
 pub(crate) struct SwimNode<T: TransportLayer> {
+    /// The address of this node.
     addr: String,
+    /// The SWIM configuration settings.
     config: Arc<SwimConfig>,
+    /// The failure detector responsible for monitoring node health.
     failure_detector: Arc<FailureDetector<T>>,
+    /// The message handler for processing incoming SWIM messages.
     message_handler: Arc<MessageHandler<T>>,
+    /// The membership list containing information about cluster members.
     membership_list: Arc<MembershipList>,
+    /// The broadcast channel for emitting events.
     tx: Sender<Event>,
 }
 
 impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
+    /// Creates a new `SwimNode` instance with the given socket, configuration, and event sender.
+    ///
+    /// This method initializes the membership list with the known peers from the configuration
+    /// and sets up the necessary components for the SWIM protocol.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket` - The transport layer socket for communication.
+    /// * `config` - The SWIM configuration settings.
+    /// * `tx` - The sender part of a broadcast channel for emitting events.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the new `SwimNode` instance or an error if initialization fails.
     pub(crate) async fn try_new(socket: T, config: SwimConfig, tx: Sender<Event>) -> Result<Self> {
         let addr = socket.local_addr()?;
         let membership_list = MembershipList::new(&addr, 0);
@@ -51,6 +85,10 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         Self::try_new_with_membership_list(socket, config, membership_list, tx)
     }
 
+    /// Creates a new `SwimNode` instance with an existing membership list.
+    ///
+    /// This method allows for providing a pre-initialized membership list, which can be useful
+    /// for testing or when the membership list is constructed separately.
     pub(crate) fn try_new_with_membership_list(
         socket: T,
         config: SwimConfig,
@@ -93,22 +131,27 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         })
     }
 
+    /// Returns the address of this node.
     pub(crate) fn addr(&self) -> &str {
         &self.addr
     }
 
+    /// Returns a reference to the SWIM configuration.
     pub(crate) fn config(&self) -> &SwimConfig {
         &self.config
     }
 
+    /// Returns a reference to the membership list.
     pub(crate) fn membership_list(&self) -> &MembershipList {
         &self.membership_list
     }
 
+    /// Subscribes to the event broadcast channel.
     pub(crate) fn subscribe(&self) -> Receiver<Event> {
         self.tx.subscribe()
     }
 
+    /// Runs the SWIM protocol by starting the failure detection and message dispatch loops.
     pub(crate) async fn run(&self) -> (JoinHandle<()>, JoinHandle<()>) {
         let dispatch_handle = self.dispatch().await;
         let detection_handle = self.failure_detection().await;
@@ -116,6 +159,10 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         (dispatch_handle, detection_handle)
     }
 
+    /// Starts the failure detection loop.
+    ///
+    /// This method spawns a task that continuously performs failure detection
+    /// based on the current state of the failure detector.
     async fn failure_detection(&self) -> JoinHandle<()> {
         let failure_detector = self.failure_detector.clone();
         let membership_list = self.membership_list.clone();
@@ -162,6 +209,10 @@ impl<T: TransportLayer + Send + Sync + 'static> SwimNode<T> {
         })
     }
 
+    /// Starts the message dispatch loop.
+    ///
+    /// This method spawns a task that continuously reads incoming messages
+    /// and dispatches them to the appropriate handlers.
     async fn dispatch(&self) -> JoinHandle<()> {
         let message_handler = self.message_handler.clone();
 
