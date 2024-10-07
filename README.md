@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
 
 The following example demonstrates how to subscribe to events emitted by nodes in the SWIM cluster.
 
-```Rust
+```rust
 use std::time::Duration;
 
 use swim_rs::{
