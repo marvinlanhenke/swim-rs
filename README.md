@@ -29,7 +29,7 @@ Add `swim-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-swim-rs = "0.1.0"
+swim-rs = "0.1.1"
 ```
 
 ## Basic Example
